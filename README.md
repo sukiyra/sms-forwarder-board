@@ -13,6 +13,7 @@
 - 可扫描运营商、严格手动选网和恢复自动选网；目标网络拒绝时自动恢复可用网络。
 - 初始化引导自动扫描附近 Wi-Fi，可选择网络、输入密码并在保存前测试连接；系统设置中也可随时更换主备网络。
 - Wi-Fi 断线时自动保活并轮询主备网络；持续无法恢复会自动开启 `sms-forwarder` 热点进入手动配网。
+- 人可读通知统一显示北京时间；开放 API 与本地记录继续使用 UTC ISO-8601，便于程序可靠解析和排序。
 - 响应式 Web 管理台，适配手机、普通桌面和超宽屏。
 - Windows 量产工具支持在线选择 GitHub Release 版本、多串口并行烧录和逐台验收。
 - 每台设备输出 CSV 与 JSON 量产记录，不记录短信正文、Wi-Fi 密码或推送密钥。
@@ -82,7 +83,7 @@ arduino-cli compile `
 python .\factory\production_tool.py --list-versions
 
 # 选择指定 Release，并烧录所有自动识别的 ESP32 串口
-python .\factory\production_tool.py --all --version v1.4.0 --require-sim --require-network
+python .\factory\production_tool.py --all --version v1.4.1 --require-sim --require-network
 
 # 使用最新 Release，保留设备已有配置
 python .\factory\production_tool.py --ports COM3 --version latest --keep-data

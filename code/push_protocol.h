@@ -14,6 +14,7 @@ struct DeliveryResult {
 
 std::string escapeJson(const std::string& text);
 std::string encodeUrl(const std::string& text);
+std::string displayTimestampChina(const std::string& timestamp);
 std::vector<std::string> splitUtf8(const std::string& text, size_t maxBytes);
 std::vector<std::string> wecomPayloads(const std::string& sender,
                                      const std::string& message,

@@ -8,6 +8,7 @@ void sendSMSToServer(const char* sender, const char* message, const char* timest
 void sendToChannel(const PushChannel& channel, const char* sender, const char* message, const char* timestamp);
 String urlEncode(const String& str);
 String jsonEscape(const String& str);
+String notificationDisplayTime(const char* timestamp);
 String dingtalkSign(const String& secret, int64_t timestamp);
 int64_t getUtcMillis();
 

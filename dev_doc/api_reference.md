@@ -267,7 +267,7 @@ HMAC-SHA256(timestamp + "\n" + secret, secret) → Base64 → URLEncode
 
 ### `bool processSmsContent(const char* sender, const char* text, const char* timestamp)`
 
-`timestamp` 对新短信为设备收到首个 PDU 分段时生成的 UTC ISO-8601 时间；NTP 不可用时回退为短信中心 SCTS。接收卡来源优先使用当前 Profile 名称与脱敏 ICCID 尾号；Profile 缓存尚未加载时使用 SIM ICCID 尾号写入本地收件箱。
+`timestamp` 对新短信为设备收到首个 PDU 分段时生成的 UTC ISO-8601 时间；NTP 不可用时回退为短信中心 SCTS。企业微信等面向用户的通知文本会转换为北京时间，API 字段仍保留原始时间。接收卡来源优先使用当前 Profile 名称与脱敏 ICCID 尾号；Profile 缓存尚未加载时使用 SIM ICCID 尾号写入本地收件箱。
 
 **处理顺序**:
 1. `isInNumberBlackList()` → 忽略
