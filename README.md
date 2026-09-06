@@ -11,6 +11,8 @@
 - 接收和主动发送短信；短信使用固定 50 条循环存储，不会无限占用 Flash。
 - 支持企业微信、飞书、Bark、电子邮件、钉钉、PushPlus、Server 酱、Gotify、Telegram 及自定义 HTTP 推送。
 - 可扫描运营商、严格手动选网和恢复自动选网；目标网络拒绝时自动恢复可用网络。
+- 初始化引导自动扫描附近 Wi-Fi，可选择网络、输入密码并在保存前测试连接；系统设置中也可随时更换主备网络。
+- Wi-Fi 断线时自动保活并轮询主备网络；持续无法恢复会自动开启 `sms-forwarder` 热点进入手动配网。
 - 响应式 Web 管理台，适配手机、普通桌面和超宽屏。
 - Windows 量产工具支持在线选择 GitHub Release 版本、多串口并行烧录和逐台验收。
 - 每台设备输出 CSV 与 JSON 量产记录，不记录短信正文、Wi-Fi 密码或推送密钥。
@@ -47,7 +49,9 @@
 
 ## 首次启动
 
-设备没有可用 Wi-Fi 配置时会开启 `sms-forwarder` 配置热点。连接后访问 `http://192.168.4.1` 添加 Wi-Fi。设备接入局域网后，通过路由器分配的 IP 打开管理台。
+设备没有可用 Wi-Fi 配置时会开启 `sms-forwarder` 配置热点。连接后访问 `http://192.168.4.1`，初始化引导会自动扫描附近网络；选择 Wi-Fi、输入密码并完成连接测试后保存。设备接入局域网后，通过路由器分配的 IP 打开管理台。
+
+运行期间断线时，设备先使用 ESP32 自动重连保活。持续 2 分钟仍未恢复会按顺序非阻塞尝试最多 5 个已保存网络，每个网络最多等待 12 秒；全部失败后自动恢复 `sms-forwarder` 配置热点。此时重新连接热点即可修改 Wi-Fi，不需要清空其他系统配置。
 
 默认管理员账号为 `admin`，初始密码为 `admin123`。首次登录后请立即在“系统设置”中修改密码。管理页面使用局域网 HTTP，不应直接映射到公网。
 
@@ -78,7 +82,7 @@ arduino-cli compile `
 python .\factory\production_tool.py --list-versions
 
 # 选择指定 Release，并烧录所有自动识别的 ESP32 串口
-python .\factory\production_tool.py --all --version v1.3.2 --require-sim --require-network
+python .\factory\production_tool.py --all --version v1.4.0 --require-sim --require-network
 
 # 使用最新 Release，保留设备已有配置
 python .\factory\production_tool.py --ports COM3 --version latest --keep-data

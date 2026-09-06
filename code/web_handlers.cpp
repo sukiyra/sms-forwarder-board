@@ -90,6 +90,311 @@ static bool requireModemRouteReady() {
   return false;
 }
 
+// WiFi 扫描、凭据测试与运行期恢复均为非阻塞任务，避免在主循环中长时间
+// 停止短信 URC 和模组状态处理。短暂断线先交给 SDK 自动重连，超过宽限期
+// 后再逐个尝试已保存网络；全部失败则进入配置热点。
+namespace {
+constexpr unsigned long WIFI_TEST_QUEUE_MS = 700;
+constexpr unsigned long WIFI_TEST_CONNECT_MS = 15000;
+constexpr unsigned long WIFI_RECOVERY_GRACE_MS = 120000;
+constexpr unsigned long WIFI_RECOVERY_ATTEMPT_MS = 12000;
+
+enum WifiTestStage {
+  WIFI_TEST_IDLE,
+  WIFI_TEST_QUEUED,
+  WIFI_TEST_CONNECTING,
+  WIFI_TEST_RESTORING
+};
+
+struct WifiTestJob {
+  bool active = false;
+  bool done = false;
+  bool ok = false;
+  bool restoreOk = true;
+  bool previousConnected = false;
+  bool previousHadAp = false;
+  WifiTestStage stage = WIFI_TEST_IDLE;
+  unsigned long stageAt = 0;
+  unsigned long updatedAt = 0;
+  String targetSsid;
+  String targetPass;
+  String previousSsid;
+  String previousPass;
+  String targetIp;
+  int targetRssi = 0;
+  String message = "尚未测试";
+};
+
+WifiTestJob wifiTestJob;
+unsigned long wifiDownSince = 0;
+bool wifiRecoveryActive = false;
+int wifiRecoveryNextIndex = 0;
+int wifiRecoveryTryingIndex = -1;
+unsigned long wifiRecoveryAttemptAt = 0;
+
+bool wifiModeHasAp() {
+  wifi_mode_t mode = WiFi.getMode();
+  return mode == WIFI_AP || mode == WIFI_AP_STA;
+}
+
+int configuredWifiIndex(const String &ssid) {
+  for (int i = 0; i < WIFI_NETS_MAX; ++i) {
+    if (config.wifiNets[i].ssid == ssid) return i;
+  }
+  return -1;
+}
+
+void finishWifiTest(bool restoreOk) {
+  wifiTestJob.active = false;
+  wifiTestJob.done = true;
+  wifiTestJob.restoreOk = restoreOk;
+  wifiTestJob.stage = WIFI_TEST_IDLE;
+  wifiTestJob.updatedAt = millis();
+  if (wifiTestJob.ok) {
+    wifiTestJob.message = restoreOk
+                              ? "WiFi 连接测试成功，已恢复测试前的网络"
+                              : "WiFi 连接测试成功，但原网络未恢复，已开启配置热点";
+  } else {
+    wifiTestJob.message = restoreOk
+                              ? "WiFi 连接测试失败，已恢复测试前的网络"
+                              : "WiFi 连接测试失败且原网络未恢复，已开启配置热点";
+  }
+  logCaptureLn(wifiTestJob.message);
+}
+
+void startWifiTestRestore() {
+  WiFi.disconnect(false, false);
+  if (wifiTestJob.previousConnected && wifiTestJob.previousSsid.length()) {
+    WiFi.mode(wifiTestJob.previousHadAp ? WIFI_AP_STA : WIFI_STA);
+    WiFi.begin(wifiTestJob.previousSsid.c_str(), wifiTestJob.previousPass.c_str());
+    wifiTestJob.stage = WIFI_TEST_RESTORING;
+    wifiTestJob.stageAt = millis();
+    return;
+  }
+  if (wifiTestJob.previousHadAp) {
+    WiFi.mode(WIFI_AP);
+    finishWifiTest(true);
+    return;
+  }
+  wifiStartAp();
+  finishWifiTest(false);
+}
+
+void serviceWifiTest() {
+  if (!wifiTestJob.active) return;
+  unsigned long elapsed = millis() - wifiTestJob.stageAt;
+  if (wifiTestJob.stage == WIFI_TEST_QUEUED) {
+    if (elapsed < WIFI_TEST_QUEUE_MS) return;
+    WiFi.scanDelete();
+    WiFi.mode(wifiTestJob.previousHadAp ? WIFI_AP_STA : WIFI_STA);
+    WiFi.disconnect(false, false);
+    WiFi.begin(wifiTestJob.targetSsid.c_str(), wifiTestJob.targetPass.c_str());
+    wifiTestJob.stage = WIFI_TEST_CONNECTING;
+    wifiTestJob.stageAt = millis();
+    wifiTestJob.message = "正在验证 WiFi 名称和密码";
+    logCaptureLn(String("开始测试WiFi: ") + wifiTestJob.targetSsid);
+    return;
+  }
+  if (wifiTestJob.stage == WIFI_TEST_CONNECTING) {
+    if (WiFi.status() == WL_CONNECTED && WiFi.SSID() == wifiTestJob.targetSsid) {
+      wifiTestJob.ok = true;
+      wifiTestJob.targetIp = WiFi.localIP().toString();
+      wifiTestJob.targetRssi = WiFi.RSSI();
+      wifiTestJob.message = "目标 WiFi 已连接，正在恢复测试前的网络";
+      startWifiTestRestore();
+    } else if (elapsed >= WIFI_TEST_CONNECT_MS) {
+      wifiTestJob.ok = false;
+      wifiTestJob.message = "目标 WiFi 连接超时，正在恢复测试前的网络";
+      startWifiTestRestore();
+    }
+    return;
+  }
+  if (wifiTestJob.stage == WIFI_TEST_RESTORING) {
+    if (WiFi.status() == WL_CONNECTED && WiFi.SSID() == wifiTestJob.previousSsid) {
+      finishWifiTest(true);
+    } else if (elapsed >= WIFI_TEST_CONNECT_MS) {
+      wifiStartAp();
+      finishWifiTest(false);
+    }
+  }
+}
+
+void startNextWifiRecoveryAttempt() {
+  while (wifiRecoveryNextIndex < WIFI_NETS_MAX &&
+         config.wifiNets[wifiRecoveryNextIndex].ssid.length() == 0) {
+    ++wifiRecoveryNextIndex;
+  }
+  if (wifiRecoveryNextIndex >= WIFI_NETS_MAX) {
+    wifiRecoveryActive = false;
+    logCaptureLn(String("所有已保存WiFi均无法连接，进入手动配网阶段"));
+    wifiStartAp();
+    return;
+  }
+  wifiRecoveryTryingIndex = wifiRecoveryNextIndex++;
+  WifiNet &net = config.wifiNets[wifiRecoveryTryingIndex];
+  WiFi.scanDelete();
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect(false, false);
+  WiFi.begin(net.ssid.c_str(), net.pass.c_str());
+  wifiRecoveryAttemptAt = millis();
+  logCaptureLn(String("WiFi保活尝试: ") + net.ssid);
+}
+}  // namespace
+
+bool wifiProvisioningMode() {
+  return wifiModeHasAp();
+}
+
+bool wifiStartScan(String &message) {
+  if (wifiTestJob.active || wifiRecoveryActive) {
+    message = "WiFi 正在连接或恢复，请稍后再扫描";
+    return false;
+  }
+  if (WiFi.scanComplete() == WIFI_SCAN_RUNNING) {
+    message = "WiFi 扫描正在进行";
+    return true;
+  }
+  WiFi.scanDelete();
+  if (WiFi.getMode() == WIFI_AP) WiFi.mode(WIFI_AP_STA);
+  int result = WiFi.scanNetworks(true, true, false, 180);
+  if (result == WIFI_SCAN_FAILED) {
+    message = "无法启动 WiFi 扫描";
+    return false;
+  }
+  message = "正在扫描附近 WiFi";
+  return true;
+}
+
+String wifiScanStatusJson() {
+  int count = WiFi.scanComplete();
+  if (count == WIFI_SCAN_RUNNING) {
+    return "{\"ok\":true,\"state\":\"scanning\",\"networks\":[]}";
+  }
+  if (count == WIFI_SCAN_FAILED) {
+    return "{\"ok\":true,\"state\":\"idle\",\"networks\":[]}";
+  }
+  String json;
+  json.reserve(300 + min(count, 40) * 110);
+  json = "{\"ok\":true,\"state\":\"complete\",\"networks\":[";
+  bool first = true;
+  int limit = min(count, 40);
+  for (int i = 0; i < limit; ++i) {
+    String ssid = WiFi.SSID(i);
+    if (!ssid.length()) continue;
+    bool duplicate = false;
+    for (int k = 0; k < i; ++k) {
+      if (WiFi.SSID(k) == ssid) {
+        duplicate = true;
+        break;
+      }
+    }
+    if (duplicate) continue;
+    int savedIndex = configuredWifiIndex(ssid);
+    if (!first) json += ',';
+    first = false;
+    json += "{\"ssid\":\"" + jsonEscape(ssid) + "\",\"rssi\":" + String(WiFi.RSSI(i)) +
+            ",\"channel\":" + String(WiFi.channel(i)) + ",\"secure\":" +
+            String(WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? "false" : "true") +
+            ",\"saved\":" + String(savedIndex >= 0 ? "true" : "false") +
+            ",\"connected\":" + String(WiFi.isConnected() && WiFi.SSID() == ssid ? "true" : "false") + "}";
+  }
+  json += "]}";
+  return json;
+}
+
+bool wifiStartConnectionTest(const String &ssidValue, const String &passValue, String &message) {
+  String ssid = ssidValue;
+  String pass = passValue;
+  ssid.trim();
+  if (!ssid.length() || ssid.length() > 32 || pass.length() > 64) {
+    message = "WiFi 名称或密码长度无效";
+    return false;
+  }
+  if (wifiTestJob.active || wifiRecoveryActive || WiFi.scanComplete() == WIFI_SCAN_RUNNING) {
+    message = "WiFi 正在扫描、连接或恢复，请稍后再测试";
+    return false;
+  }
+  wifi_mode_t mode = WiFi.getMode();
+  wifiTestJob = WifiTestJob();
+  wifiTestJob.active = true;
+  wifiTestJob.stage = WIFI_TEST_QUEUED;
+  wifiTestJob.stageAt = millis();
+  wifiTestJob.updatedAt = millis();
+  wifiTestJob.targetSsid = ssid;
+  wifiTestJob.targetPass = pass;
+  wifiTestJob.previousConnected = WiFi.status() == WL_CONNECTED;
+  wifiTestJob.previousHadAp = mode == WIFI_AP || mode == WIFI_AP_STA;
+  if (wifiTestJob.previousConnected) {
+    wifiTestJob.previousSsid = WiFi.SSID();
+    int index = configuredWifiIndex(wifiTestJob.previousSsid);
+    if (index >= 0) wifiTestJob.previousPass = config.wifiNets[index].pass;
+  }
+  wifiTestJob.message = "测试已排队，管理连接可能短暂中断";
+  message = wifiTestJob.message;
+  return true;
+}
+
+String wifiConnectionTestJson() {
+  const char *state = wifiTestJob.active ? "running" : (wifiTestJob.done ? "complete" : "idle");
+  int progress = 0;
+  if (wifiTestJob.stage == WIFI_TEST_QUEUED) progress = 10;
+  else if (wifiTestJob.stage == WIFI_TEST_CONNECTING) progress = 55;
+  else if (wifiTestJob.stage == WIFI_TEST_RESTORING) progress = 85;
+  else if (wifiTestJob.done) progress = 100;
+  String json;
+  json.reserve(420);
+  json = "{\"ok\":true,\"state\":\"" + String(state) + "\",\"active\":" +
+         String(wifiTestJob.active ? "true" : "false") + ",\"done\":" +
+         String(wifiTestJob.done ? "true" : "false") + ",\"success\":" +
+         String(wifiTestJob.ok ? "true" : "false") + ",\"restoreOk\":" +
+         String(wifiTestJob.restoreOk ? "true" : "false") + ",\"progress\":" +
+         String(progress) + ",\"ssid\":\"" + jsonEscape(wifiTestJob.targetSsid) +
+         "\",\"ip\":\"" + jsonEscape(wifiTestJob.targetIp) + "\",\"rssi\":" +
+         String(wifiTestJob.targetRssi) + ",\"message\":\"" +
+         jsonEscape(wifiTestJob.message) + "\",\"updatedAt\":" +
+         String(wifiTestJob.updatedAt) + "}";
+  return json;
+}
+
+void wifiMaintenanceLoop() {
+  serviceWifiTest();
+  if (wifiTestJob.active) return;
+  if (wifiModeHasAp()) {
+    wifiDownSince = 0;
+    wifiRecoveryActive = false;
+    return;
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    if (wifiRecoveryActive) {
+      logCaptureLn(String("WiFi保活恢复成功: ") + WiFi.SSID() + " · " + WiFi.localIP().toString());
+    }
+    wifiDownSince = 0;
+    wifiRecoveryActive = false;
+    wifiRecoveryNextIndex = 0;
+    wifiRecoveryTryingIndex = -1;
+    return;
+  }
+  if (!wifiDownSince) {
+    wifiDownSince = millis();
+    logCaptureLn(String("WiFi 已断开，等待自动重连"));
+    return;
+  }
+  if (!wifiRecoveryActive) {
+    if (millis() - wifiDownSince < WIFI_RECOVERY_GRACE_MS) return;
+    wifiRecoveryActive = true;
+    wifiRecoveryNextIndex = 0;
+    wifiRecoveryTryingIndex = -1;
+    logCaptureLn(String("WiFi 持续断开超过 2 分钟，开始逐个恢复已保存网络"));
+    startNextWifiRecoveryAttempt();
+    return;
+  }
+  if (wifiRecoveryTryingIndex >= 0 &&
+      millis() - wifiRecoveryAttemptAt >= WIFI_RECOVERY_ATTEMPT_MS) {
+    logCaptureLn(String("WiFi保活失败: ") + config.wifiNets[wifiRecoveryTryingIndex].ssid);
+    startNextWifiRecoveryAttempt();
+  }
+}
+
 // 依次尝试已配置的 WiFi 网络,成功返回 true(需在 HTTP 服务启动后调用)
 bool wifiApplyStableIp(int idx);
 bool wifiConnectAll() {
@@ -167,6 +472,11 @@ bool wifiApplyStableIp(int idx) {
 
 // 无可用WiFi时开放配置热点,供首次配置使用
 void wifiStartAp() {
+  wifiRecoveryActive = false;
+  wifiRecoveryNextIndex = 0;
+  wifiRecoveryTryingIndex = -1;
+  wifiDownSince = 0;
+  WiFi.disconnect(false, false);
   WiFi.mode(WIFI_AP);
   bool ok = WiFi.softAP("sms-forwarder");
   if (ok) {

@@ -404,6 +404,46 @@ void handleApiWifiPost() {
   ESP.restart();
 }
 
+void handleApiWifiScan() {
+  if (!authRequire()) return;
+  if (server.hasArg("refresh")) {
+    String message;
+    if (!wifiStartScan(message)) {
+      sendJsonResponse(409, "{\"ok\":false,\"message\":\"" + jsonEscape(message) + "\"}");
+      return;
+    }
+    sendJsonResponse(202, wifiScanStatusJson());
+    return;
+  }
+  sendJsonResponse(200, wifiScanStatusJson());
+}
+
+void handleApiWifiTestPost() {
+  if (!authRequireCsrf()) return;
+  String ssid = server.arg("ssid");
+  String pass = server.arg("pass");
+  ssid.trim();
+  if (!pass.length() && ssid.length()) {
+    for (int i = 0; i < WIFI_NETS_MAX; ++i) {
+      if (config.wifiNets[i].ssid == ssid) {
+        pass = config.wifiNets[i].pass;
+        break;
+      }
+    }
+  }
+  String message;
+  if (!wifiStartConnectionTest(ssid, pass, message)) {
+    sendJsonResponse(409, "{\"ok\":false,\"message\":\"" + jsonEscape(message) + "\"}");
+    return;
+  }
+  sendJsonResponse(202, wifiConnectionTestJson());
+}
+
+void handleApiWifiTestGet() {
+  if (!authRequire()) return;
+  sendJsonResponse(200, wifiConnectionTestJson());
+}
+
 void handleApiReboot() {
   if (!authRequireCsrf()) return;
   sendJsonResponse(200, "{\"ok\":true,\"message\":\"设备正在重启，约 40 秒后恢复\"}");
@@ -535,7 +575,7 @@ void handleApiConfigGet() {
     json += "{\"ssid\":\"" + jsonEscape(config.wifiNets[i].ssid) +
             "\",\"passSet\":" + String(config.wifiNets[i].pass.length() ? "true" : "false") + "}";
   }
-  json += "],\"apMode\":" + String(WiFi.getMode() == WIFI_AP ? "true" : "false") +
+  json += "],\"apMode\":" + String(wifiProvisioningMode() ? "true" : "false") +
           "},\"brand\":{\"title\":\"" + jsonEscape(config.brandTitle) +
           "\",\"sub\":\"" + jsonEscape(config.brandSub) + "\"},\"tasks\":[";
   for (int i = 0; i < MAX_CUSTOM_TASKS; ++i) {
@@ -729,6 +769,9 @@ void registerApiRoutes() {
   server.on("/api/config", HTTP_GET, handleApiConfigGet);
   server.on("/api/config", HTTP_POST, handleApiConfigPost);
   server.on("/api/wifi", HTTP_POST, handleApiWifiPost);
+  server.on("/api/wifi/scan", HTTP_GET, handleApiWifiScan);
+  server.on("/api/wifi/test", HTTP_POST, handleApiWifiTestPost);
+  server.on("/api/wifi/test", HTTP_GET, handleApiWifiTestGet);
   server.on("/api/sms/send", HTTP_POST, handleApiSmsSend);
   server.on("/api/sms/send/status", HTTP_GET, handleApiSmsSendStatus);
   server.on("/sendsms", HTTP_POST, handleApiSmsSend);

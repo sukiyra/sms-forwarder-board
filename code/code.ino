@@ -130,7 +130,7 @@ void loop() {
   if (schedulerTickDue() && !pendingWebSmsBusy()) {
     checkCustomTasks();
   }
-  checkWifiFailover();
+  wifiMaintenanceLoop();
   delay(1);
 }
 
@@ -238,20 +238,4 @@ static bool schedulerTickDue() {
   if (millis() - schedulerLastTick < 60000) return false;
   schedulerLastTick = millis();
   return true;
-}
-// WiFi 断开超过 2 分钟时轮换到下一个已配置网络(仅 STA 模式)
-static void checkWifiFailover() {
-  static unsigned long wifiDownSince = 0;
-  if (WiFi.status() == WL_CONNECTED || WiFi.getMode() != WIFI_STA) {
-    wifiDownSince = 0;
-    return;
-  }
-  if (wifiDownSince == 0) {
-    wifiDownSince = millis();
-    return;
-  }
-  if (millis() - wifiDownSince < 120000) return;
-  logCaptureLn(String("WiFi 持续断开超过 2 分钟，尝试切换到备用网络"));
-  wifiDownSince = 0;
-  wifiConnectAll();
 }
