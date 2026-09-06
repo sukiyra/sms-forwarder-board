@@ -99,7 +99,7 @@ jobs:
     - name: Build standalone Windows tool
       shell: pwsh
       run: |
-          python -m pip install -r ./factory/build-requirements.txt
+        python -m pip install -r ./factory/build-requirements.txt
         pyinstaller --noconfirm --clean --onefile --windowed `
           --name sms-forwarder-production-tool `
           --hidden-import serial --hidden-import serial.tools.list_ports `
