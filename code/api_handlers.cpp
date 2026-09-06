@@ -504,21 +504,24 @@ void handleApiSmsSendStatus() {
 void handleApiConfigGet() {
   if (!authRequire()) return;
   String json;
-  json.reserve(4096);
+  json.reserve(12288);
   json = "{\"ok\":true,\"webUser\":\"" + jsonEscape(config.webUser) +
          "\",\"mustChangePassword\":" + String(config.webPass == DEFAULT_WEB_PASS ? "true" : "false") +
          ",\"adminPhone\":\"" + jsonEscape(config.adminPhone) + "\",\"numberBlackList\":\"" +
          jsonEscape(config.numberBlackList) + "\",\"smtp\":{\"server\":\"" +
          jsonEscape(config.smtpServer) + "\",\"port\":" + String(config.smtpPort) +
          ",\"user\":\"" + jsonEscape(config.smtpUser) + "\",\"recipient\":\"" +
-         jsonEscape(config.smtpSendTo) + "\",\"passwordSet\":" +
+         jsonEscape(config.smtpSendTo) + "\",\"password\":\"" + jsonEscape(config.smtpPass) +
+         "\",\"passwordSet\":" +
          String(config.smtpPass.length() ? "true" : "false") + "},\"push\":[";
   for (int i = 0; i < MAX_PUSH_CHANNELS; ++i) {
     if (i) json += ',';
     const PushChannel &ch = config.pushChannels[i];
     json += "{\"enabled\":" + String(ch.enabled ? "true" : "false") + ",\"type\":" +
-            String(static_cast<int>(ch.type)) + ",\"name\":\"" + jsonEscape(ch.name) +
-            "\",\"urlSet\":" + String(ch.url.length() ? "true" : "false") +
+             String(static_cast<int>(ch.type)) + ",\"name\":\"" + jsonEscape(ch.name) +
+             "\",\"url\":\"" + jsonEscape(ch.url) + "\",\"key1\":\"" + jsonEscape(ch.key1) +
+             "\",\"key2\":\"" + jsonEscape(ch.key2) + "\",\"urlSet\":" +
+             String(ch.url.length() ? "true" : "false") +
             ",\"key1Set\":" + String(ch.key1.length() ? "true" : "false") +
             ",\"key2Set\":" + String(ch.key2.length() ? "true" : "false") +
             ",\"urlConfigured\":" + String(ch.url.length() ? "true" : "false") +
