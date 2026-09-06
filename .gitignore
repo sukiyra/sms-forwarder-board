@@ -1,0 +1,14 @@
+# Local Wi-Fi credentials. Copy from code/wifi_config.example.h.
+code/wifi_config.h
+
+# Local Arduino build output
+build/
+.build/
+code/build/
+
+# Local factory builds and per-device production records
+factory/.build/
+factory/dist/
+factory/records/
+factory/__pycache__/
+factory/tests/__pycache__/

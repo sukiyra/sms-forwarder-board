@@ -1,0 +1,13 @@
+SMS Forwarder Board
+Copyright (c) 2026 sukiyra
+
+This repository is maintained and released as an independent GitHub project.
+It contains MIT-licensed work originally published by chenxuuu and later
+contributors. The original copyright notice is preserved in LICENSE.
+
+Earlier public projects that informed the code base include:
+- https://github.com/chenxuuu/sms_forwarding
+- https://github.com/arickxuan/sms_forwarding
+- https://github.com/Tianmoy/sms_forwarding
+
+All modifications and new components remain available under the MIT License.

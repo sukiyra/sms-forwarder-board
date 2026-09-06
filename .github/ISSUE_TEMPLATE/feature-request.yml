@@ -1,0 +1,24 @@
+name: "功能建议"
+description: "提出固件、管理台或量产流程的新功能"
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 使用场景
+      description: 请说明当前遇到的限制和目标用户。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案
+      description: 请描述期望的操作流程与结果。
+    validations:
+      required: true
+  - type: textarea
+    id: hardware
+    attributes:
+      label: 硬件或网络限制
+      description: 如适用，请填写 ML307 完整料号、SIM 类型和运营商。
