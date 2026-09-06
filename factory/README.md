@@ -54,7 +54,7 @@ GitHub 暂时不可用时，选择“本地固件目录”即可离线烧录。
 .\factory\start.ps1 --list-versions
 
 # 在线选择指定版本量产
-.\factory\start.ps1 --all --version v1.3.1 --require-sim --require-network
+.\factory\start.ps1 --all --version v1.3.2 --require-sim --require-network
 
 # 在线选择最新版本并保留配置
 .\factory\start.ps1 --ports COM3 COM4 --version latest --keep-data

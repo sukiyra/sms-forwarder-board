@@ -68,6 +68,7 @@ struct OperatorJob {
   bool fromEsim = false;
   bool recoveryRebooted = false;
   unsigned long startedAt = 0;
+  unsigned long finishedAt = 0;
   unsigned long commandStartedAt = 0;
   unsigned long phaseAt = 0;
   unsigned long recoveryStartedAt = 0;
@@ -387,6 +388,7 @@ void finishJob(bool ok, const String& message, const String& error = "", bool wa
   job.phase = ok ? "complete" : "failed";
   job.message = message;
   job.error = error;
+  job.finishedAt = millis();
   job.stage = STAGE_NONE;
   releaseExclusive();
   if (invalidatePending) clearOperatorCache();
@@ -489,7 +491,7 @@ void handleSuccessfulResponse() {
       currentOperator.mode = 0;
       detail += "；已恢复自动选网，运营商信息稍后刷新";
     }
-    finishJob(false, recoveryMessage, detail);
+    finishJob(false, recoveryMessage, detail, true);
     return;
   }
 
@@ -842,6 +844,8 @@ String operatorCurrentActName() {
 
 String operatorManagerJson() {
   bool cacheFresh = networksUpdatedAt && millis() - networksUpdatedAt <= SCAN_CACHE_MS;
+  bool showJob = job.active ||
+                 (job.done && (!job.finishedAt || millis() - job.finishedAt < 9000UL));
   String json;
   json.reserve(1800 + networkCount * 180);
   json = "{\"ok\":true,\"current\":{\"known\":" + String(currentOperator.known ? "true" : "false") +
@@ -859,7 +863,8 @@ String operatorManagerJson() {
   }
   json += "],\"job\":{\"id\":" + String(job.id) + ",\"active\":" +
           String(job.active ? "true" : "false") + ",\"running\":" +
-          String(job.active ? "true" : "false") + ",\"done\":" +
+          String(job.active ? "true" : "false") + ",\"visible\":" +
+          String(showJob ? "true" : "false") + ",\"done\":" +
           String(job.done ? "true" : "false") + ",\"ok\":" +
           String(job.ok ? "true" : "false") + ",\"warning\":" +
           String(job.warning ? "true" : "false") + ",\"type\":\"" + taskName(job.type) +
