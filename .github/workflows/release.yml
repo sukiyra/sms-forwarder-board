@@ -86,7 +86,7 @@ jobs:
           zip -q -9 -r "../sms-forwarder-firmware-${RELEASE_TAG}.zip" .
 
       - name: Upload firmware release asset
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-firmware
           path: ./release/sms-forwarder-firmware-*.zip
@@ -132,7 +132,7 @@ jobs:
           Compress-Archive -Path ./release/tool/* -DestinationPath "./release/sms-forwarder-production-tool-windows-${env:RELEASE_TAG}.zip" -CompressionLevel Optimal
 
       - name: Upload Windows release asset
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-windows-tool
           path: ./release/sms-forwarder-production-tool-windows-*.zip
@@ -142,7 +142,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download release assets
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           pattern: release-*
           path: ./release-assets

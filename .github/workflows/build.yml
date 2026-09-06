@@ -2,6 +2,8 @@ name: Build Arduino Firmware
 
 on:
   push:
+    branches:
+      - main
     paths:
       - 'code/**'
       - 'factory/**'
@@ -67,7 +69,7 @@ jobs:
       run: python ./factory/make_manifest.py ./fw ./factory/dist
 
     - name: Upload firmware
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: firmware
         path: ./factory/dist/*
@@ -112,13 +114,13 @@ jobs:
         Copy-Item $esptool.FullName ./production-package/esptool.exe
 
     - name: Download production firmware
-      uses: actions/download-artifact@v5
+      uses: actions/download-artifact@v8
       with:
         name: firmware
         path: ./production-package/dist
 
     - name: Upload Windows production package
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: production-package-windows
         path: ./production-package/*
