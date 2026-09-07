@@ -1,0 +1,4 @@
+(sym_lib_table
+  (lib (name "SMS_Forwarder")(type "KiCad")(uri "${KIPRJMOD}/../libs/SMS_Forwarder.kicad_sym")(options "")(descr ""))
+  (lib (name "SMS_Board")(type "KiCad")(uri "${KIPRJMOD}/../libs/SMS_Board.kicad_sym")(options "")(descr "Generated schematic symbols"))
+)

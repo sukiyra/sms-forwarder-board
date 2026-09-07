@@ -1,0 +1,14 @@
+SMS Forwarder Board hardware design
+Copyright (c) 2026 sukiyra
+
+Version: Rev 1.0
+Source location: https://github.com/sukiyra/sms-forwarder-board/tree/main/hardware
+Licence: CERN Open Hardware Licence Version 2 - Permissive
+SPDX-License-Identifier: CERN-OHL-P-2.0
+
+This notice and the source location must remain available with products made
+from this design as required by the CERN-OHL-P-2.0 licence.
+
+Rev 1.0 is an engineering sample design.  Its committed KiCad sources pass
+ERC and DRC, but physical first-article validation remains required before
+volume manufacturing.

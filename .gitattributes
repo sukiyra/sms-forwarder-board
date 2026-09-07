@@ -1,0 +1,32 @@
+*.kicad_pcb text eol=lf
+*.kicad_sch text eol=lf
+*.kicad_pro text eol=lf
+*.kicad_sym text eol=lf
+*.kicad_mod text eol=lf
+*.dsn text eol=lf
+*.csv text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+fp-lib-table text eol=lf
+sym-lib-table text eol=lf
+
+*.step binary
+*.wrl binary
+*.png binary
+*.pdf binary
+*.zip binary
+*.xlsx binary
+*.drl binary
+*.gbl binary
+*.gbs binary
+*.gbp binary
+*.gbo binary
+*.gm1 binary
+*.gtl binary
+*.gts binary
+*.gtp binary
+*.gto binary
+*.g1 binary
+*.g2 binary
+*.gbrjob binary

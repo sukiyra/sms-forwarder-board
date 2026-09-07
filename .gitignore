@@ -12,3 +12,12 @@ factory/dist/
 factory/records/
 factory/__pycache__/
 factory/tests/__pycache__/
+
+# Local previews, PCB import caches and editor state
+.easyeda_cache/
+logs/
+outputs/
+tmp/
+hardware/**/__pycache__/
+*.kicad_prl
+*.ses
