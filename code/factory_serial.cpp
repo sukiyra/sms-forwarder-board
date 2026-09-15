@@ -59,6 +59,10 @@ void printFactoryStatus() {
       ",\"present\":" + String(simManagerIsPresent() ? "true" : "false") +
       ",\"ready\":" + String(simManagerIsReady() ? "true" : "false") +
       ",\"smsReady\":" + String(simManagerSmsReady() ? "true" : "false") +
+      ",\"smsAvailable\":" +
+      String((simManagerSmsReady() && !modemSmsCarrierBlocked()) ? "true" : "false") +
+      ",\"smsCarrierSupport\":\"" +
+      String(modemSmsCarrierSupportName()) + "\"" +
       ",\"type\":\"" + jsonEscapeFactory(esimModeName()) +
       "\",\"iccidTail\":\"" + jsonEscapeFactory(simManagerIccidTail()) +
       "\",\"homePlmn\":\"" + jsonEscapeFactory(simManagerHomePlmn()) +

@@ -95,8 +95,12 @@ void handleApiStatus() {
                         : String("null");
   unsigned long signalUpdatedAt = signalKnown ? simManagerSignalUpdatedAt() : 0;
   unsigned long signalAge = signalKnown ? millis() - signalUpdatedAt : 0;
+  SmsCarrierSupport smsCarrierSupport = modemSmsCarrierSupport();
+  bool smsAvailable = simManagerIsReady() && simManagerSmsReady() &&
+                      !modemSmsCarrierBlocked();
+  String smsCarrierMessage = modemSmsCarrierMessage();
   String json;
-  json.reserve(1400);
+  json.reserve(1700);
   json = "{\"ok\":true,\"firmware\":\"" FIRMWARE_VERSION "\",\"uptime\":" + String(millis() / 1000) +
          ",\"heap\":" + String(ESP.getFreeHeap()) + ",\"epoch\":" + String(static_cast<unsigned long>(time(nullptr))) +
          ",\"wifi\":{\"connected\":" + String(WiFi.isConnected() ? "true" : "false") +
@@ -132,7 +136,11 @@ void handleApiStatus() {
          "\",\"generation\":" + String(simManagerGeneration()) +
          ",\"changedAt\":" + String(simManagerChangedAt()) + ",\"profile\":\"" +
          jsonEscape(activeProfile) + "\",\"name\":\"" + jsonEscape(activeProfile) +
-         "\",\"profileName\":\"" + jsonEscape(activeProfile) + "\"},\"sms\":{\"stored\":" + String(smsStoreCount()) +
+         "\",\"profileName\":\"" + jsonEscape(activeProfile) + "\"},\"sms\":{\"ready\":" +
+         String(simManagerSmsReady() ? "true" : "false") + ",\"available\":" +
+         String(smsAvailable ? "true" : "false") + ",\"carrierSupport\":\"" +
+         String(smsCarrierSupportName(smsCarrierSupport)) + "\",\"message\":\"" +
+         jsonEscape(smsCarrierMessage) + "\",\"stored\":" + String(smsStoreCount()) +
          ",\"unread\":" + String(smsStoreUnread()) + ",\"capacity\":50},\"push\":{\"enabled\":" +
          String(enabledPush) + "},\"job\":" + esimJobJson() +
          ",\"outboundSms\":" + outboundSmsJson() + "}";
@@ -502,6 +510,11 @@ void handleApiSmsSend() {
     sendJsonResponse(409, "{\"ok\":false,\"message\":\"SIM 或短信服务尚未就绪\"}");
     return;
   }
+  if (modemSmsCarrierBlocked()) {
+    sendJsonResponse(409, "{\"ok\":false,\"error\":\"sms_carrier_unsupported\",\"message\":\"" +
+                              jsonEscape(modemSmsCarrierMessage()) + "\"}");
+    return;
+  }
   if (outboundSmsBusyInternal()) {
     sendJsonResponse(409, "{\"ok\":false,\"state\":\"" + String(outboundSmsStateName()) +
                            "\",\"message\":\"上一条短信仍在发送，请稍候\"}");
@@ -729,6 +742,14 @@ void processPendingWebSms() {
     outboundSmsContent = "";
     outboundSmsState = OUTBOUND_FAILED;
     outboundSmsMessage = "SIM 或短信服务已变为不可用";
+    outboundSmsUpdatedAt = millis();
+    return;
+  }
+  if (modemSmsCarrierBlocked()) {
+    outboundSmsPhone = "";
+    outboundSmsContent = "";
+    outboundSmsState = OUTBOUND_FAILED;
+    outboundSmsMessage = modemSmsCarrierMessage();
     outboundSmsUpdatedAt = millis();
     return;
   }

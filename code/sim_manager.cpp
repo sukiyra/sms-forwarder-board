@@ -653,7 +653,7 @@ void handleWireResult(WireStage completed, bool ok) {
       startWire("AT+CIMI", WIRE_CIMI);
     } else if (completed == WIRE_CIMI) {
       activeHomePlmn = "";
-      startWire("AT+CNMI=2,2,0,0,0", WIRE_CNMI);
+      startWire("AT+CMGF=0", WIRE_CMGF);
     } else if (completed == WIRE_CNMI) {
       startWire("AT+CNMI=2,1,0,0,0", WIRE_CNMI_STORED);
     } else if (completed == WIRE_CMEE) {
@@ -715,17 +715,17 @@ void handleWireResult(WireStage completed, bool ok) {
       break;
     case WIRE_CIMI:
       activeHomePlmn = homePlmn;
+      startWire("AT+CMGF=0", WIRE_CMGF);
+      break;
+    case WIRE_CMGF:
       startWire("AT+CNMI=2,2,0,0,0", WIRE_CNMI);
       break;
     case WIRE_CNMI:
       modemSetSmsDeliveryMode("direct");
-      startWire("AT+CMGF=0", WIRE_CMGF);
+      startWire("AT+CEREG=2", WIRE_CEREG_ENABLE);
       break;
     case WIRE_CNMI_STORED:
       modemSetSmsDeliveryMode("stored");
-      startWire("AT+CMGF=0", WIRE_CMGF);
-      break;
-    case WIRE_CMGF:
       startWire("AT+CEREG=2", WIRE_CEREG_ENABLE);
       break;
     case WIRE_CEREG_ENABLE:
@@ -782,7 +782,7 @@ void drainWire() {
         startWire("AT+CIMI", WIRE_CIMI);
       } else if (completed == WIRE_CIMI) {
         activeHomePlmn = "";
-        startWire("AT+CNMI=2,2,0,0,0", WIRE_CNMI);
+        startWire("AT+CMGF=0", WIRE_CMGF);
       } else if (completed == WIRE_CNMI) {
         startWire("AT+CNMI=2,1,0,0,0", WIRE_CNMI_STORED);
       } else if (completed == WIRE_CMEE && !needsConfigure) {
@@ -826,7 +826,7 @@ void drainWire() {
       startWire("AT+CIMI", WIRE_CIMI);
     } else if (completed == WIRE_CIMI) {
       activeHomePlmn = "";
-      startWire("AT+CNMI=2,2,0,0,0", WIRE_CNMI);
+      startWire("AT+CMGF=0", WIRE_CMGF);
     } else if (completed == WIRE_CNMI) {
       startWire("AT+CNMI=2,1,0,0,0", WIRE_CNMI_STORED);
     } else if (completed == WIRE_CMEE && !needsConfigure) {

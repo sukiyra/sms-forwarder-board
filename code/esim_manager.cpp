@@ -868,8 +868,14 @@ void esimManagerLoop() {
       }
       String iccidResponse = sendATCommand("AT+ICCID", 1800);
       simManagerCaptureIccid(iccidResponse);
-      bool cnmi = sendATandWaitOK("AT+CNMI=2,2,0,0,0", 1500);
       bool pdu = sendATandWaitOK("AT+CMGF=0", 1500);
+      bool cnmi = pdu && sendATandWaitOK("AT+CNMI=2,2,0,0,0", 1500);
+      if (cnmi) {
+        modemSetSmsDeliveryMode("direct");
+      } else if (pdu && sendATandWaitOK("AT+CNMI=2,1,0,0,0", 1500)) {
+        cnmi = true;
+        modemSetSmsDeliveryMode("stored");
+      }
       if (!cnmi || !pdu) {
         if (configureAttempts < 3) {
           job.message = "短信配置恢复失败，正在重试 " + String(configureAttempts) + "/3";

@@ -2,6 +2,7 @@
 #define MODEM_H
 
 #include "globals.h"
+#include "sms_capability.h"
 
 String sendATCommand(const char* cmd, unsigned long timeout);
 void modemPowerCycle();
@@ -17,6 +18,10 @@ bool modemSupportsPdpContextControl();
 bool modemModelSupported();
 const char* modemSmsDeliveryMode();
 void modemSetSmsDeliveryMode(const char* mode);
+SmsCarrierSupport modemSmsCarrierSupport();
+const char* modemSmsCarrierSupportName();
+String modemSmsCarrierMessage();
+bool modemSmsCarrierBlocked();
 bool modemAcquireExclusive();
 void modemReleaseExclusive();
 

@@ -52,6 +52,14 @@ jobs:
             -o /tmp/push_protocol_test
           /tmp/push_protocol_test
 
+      - name: Test SMS carrier capability
+        run: |
+          g++ -std=c++17 -Wall -Wextra -pedantic \
+            -I ./code \
+            ./code/sms_capability.cpp ./tests/sms_capability_test.cpp \
+            -o /tmp/sms_capability_test
+          /tmp/sms_capability_test
+
       - name: Validate embedded UI JavaScript
         run: |
           python - <<'PY'

@@ -4,6 +4,7 @@
 #include "operator_manager.h"
 #include "sim_manager.h"
 #include "modem_profile.h"
+#include "sms_capability.h"
 
 namespace {
 uint8_t modemTransactionDepth = 0;
@@ -44,6 +45,38 @@ const char* modemSmsDeliveryMode() {
 
 void modemSetSmsDeliveryMode(const char* mode) {
   smsDeliveryMode = mode ? mode : "unconfigured";
+}
+
+SmsCarrierSupport modemSmsCarrierSupport() {
+  String plmn = operatorCurrentNumeric();
+  String name = operatorCurrentLabel();
+  return smsCarrierSupportFor(detectedModemFamily.c_str(), plmn.c_str(), name.c_str());
+}
+
+const char* modemSmsCarrierSupportName() {
+  return smsCarrierSupportName(modemSmsCarrierSupport());
+}
+
+String modemSmsCarrierMessage() {
+  SmsCarrierSupport support = modemSmsCarrierSupport();
+  if (support == SMS_CARRIER_SUPPORTED) {
+    return "国内版 ML307C 当前为移动/联通网络，短信可用";
+  }
+  if (support == SMS_CARRIER_UNSUPPORTED) {
+    return "国内版 ML307C 当前网络可用于数据注册，但短信仅支持中国移动和中国联通";
+  }
+  if (detectedModemFamily.indexOf("ML307C") >= 0) {
+    return "国内版 ML307C 尚未确认运营商；短信仅支持中国移动和中国联通";
+  }
+  return "当前模组的运营商短信能力需实际收发验证";
+}
+
+bool modemSmsCarrierBlocked() {
+  SmsCarrierSupport support = modemSmsCarrierSupport();
+  if (detectedModemFamily.indexOf("ML307C") >= 0) {
+    return support != SMS_CARRIER_SUPPORTED;
+  }
+  return support == SMS_CARRIER_UNSUPPORTED;
 }
 
 bool modemAcquireExclusive() {
@@ -203,27 +236,6 @@ void modemInit() {
   logCaptureLn(iccidTail.length() == 4
                    ? String("接收卡已识别（ICCID 尾号 ") + iccidTail + ")"
                    : String("⚠️ 暂未读取到接收卡 ICCID，短信来源将使用 Profile 回退标签"));
-  bool cnmiReady = false;
-  for (uint8_t attempt = 0; attempt < 5; ++attempt) {
-    if (sendATandWaitOK("AT+CNMI=2,2,0,0,0", 1200)) {
-      cnmiReady = true;
-      modemSetSmsDeliveryMode("direct");
-      break;
-    }
-    blink_short(200);
-  }
-  if (!cnmiReady) {
-    // Some A/C firmware only accepts stored-message notifications. The +CMTI
-    // reader selects the memory named by the URC before reading and deleting it.
-    for (uint8_t attempt = 0; attempt < 3; ++attempt) {
-      if (sendATandWaitOK("AT+CNMI=2,1,0,0,0", 1200)) {
-        cnmiReady = true;
-        modemSetSmsDeliveryMode("stored");
-        break;
-      }
-      blink_short(200);
-    }
-  }
   bool pduReady = false;
   for (uint8_t attempt = 0; attempt < 5; ++attempt) {
     if (sendATandWaitOK("AT+CMGF=0", 1200)) {
@@ -231,6 +243,29 @@ void modemInit() {
       break;
     }
     blink_short(200);
+  }
+  bool cnmiReady = false;
+  if (pduReady) {
+    for (uint8_t attempt = 0; attempt < 5; ++attempt) {
+      if (sendATandWaitOK("AT+CNMI=2,2,0,0,0", 1200)) {
+        cnmiReady = true;
+        modemSetSmsDeliveryMode("direct");
+        break;
+      }
+      blink_short(200);
+    }
+    if (!cnmiReady) {
+      // Some A/C firmware only accepts stored-message notifications. The +CMTI
+      // reader selects the memory named by the URC before reading and deleting it.
+      for (uint8_t attempt = 0; attempt < 3; ++attempt) {
+        if (sendATandWaitOK("AT+CNMI=2,1,0,0,0", 1200)) {
+          cnmiReady = true;
+          modemSetSmsDeliveryMode("stored");
+          break;
+        }
+        blink_short(200);
+      }
+    }
   }
   if (!cnmiReady || !pduReady) {
     logCaptureLn(String("⚠️ 短信上报配置失败，稍后可从诊断中心重启模组重试"));
@@ -307,6 +342,10 @@ bool waitCEREG() {
 bool sendSMS(const char* phoneNumber, const char* message) {
   if (!simManagerIsReady() || !simManagerSmsReady()) {
     logCaptureLn(String("SIM 或短信服务尚未就绪，暂不能发送短信"));
+    return false;
+  }
+  if (modemSmsCarrierBlocked()) {
+    logCaptureLn(modemSmsCarrierMessage());
     return false;
   }
   if (modemIsBusy()) {

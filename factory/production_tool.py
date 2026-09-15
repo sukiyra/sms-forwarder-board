@@ -441,6 +441,8 @@ def evaluate_status(status: dict[str, Any], require_sim: bool, require_network: 
         failures.append("SIM 未就绪")
     if require_sim and (not sim.get("smsReady") or modem.get("smsMode") not in {"direct", "stored"}):
         failures.append("短信接口未配置")
+    if require_sim and sim.get("smsCarrierSupport") in {"unsupported", "unknown"} and sim.get("smsAvailable") is False:
+        failures.append("当前运营商不支持此 ML307C 的短信业务，或尚未确认运营商（仅支持移动/联通）")
     if require_network and not modem.get("registered"):
         failures.append("未完成蜂窝网络注册")
     return failures

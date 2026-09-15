@@ -30,7 +30,14 @@ def ready_status(family="ML307Y"):
             "smsMode": "direct",
             "registered": True,
         },
-        "sim": {"ready": True, "smsReady": True, "type": "physical", "iccidTail": "1234"},
+        "sim": {
+            "ready": True,
+            "smsReady": True,
+            "smsAvailable": True,
+            "smsCarrierSupport": "supported",
+            "type": "physical",
+            "iccidTail": "1234",
+        },
         "network": {"plmn": "46001"},
     }
 
@@ -48,6 +55,14 @@ class ProductionToolTests(unittest.TestCase):
         failures = evaluate_status(status, True, True)
         self.assertIn("SIM 未就绪", failures)
         self.assertIn("未完成蜂窝网络注册", failures)
+
+    def test_ml307c_telecom_sms_is_rejected(self):
+        status = ready_status("ML307C")
+        status["sim"]["smsAvailable"] = False
+        status["sim"]["smsCarrierSupport"] = "unsupported"
+        status["network"]["plmn"] = "46011"
+        failures = evaluate_status(status, True, True)
+        self.assertIn("当前运营商不支持此 ML307C 的短信业务，或尚未确认运营商（仅支持移动/联通）", failures)
 
     def test_manifest_hash_is_verified(self):
         with tempfile.TemporaryDirectory() as folder:

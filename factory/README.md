@@ -1,6 +1,6 @@
 # Windows 批量量产工具
 
-量产工具用于在线选择 GitHub Release 固件、并行烧录多块 ESP32-C3，并通过 USB 工厂协议验收 ESP32、ML307、SIM、短信配置和蜂窝注册。
+量产工具用于在线选择 GitHub Release 固件、并行烧录多块 ESP32-C3，并通过 USB 工厂协议验收 ESP32、ML307、SIM、短信配置和蜂窝注册。国内版 ML307C 使用电信网络时，“要求 SIM 就绪”会判定短信能力不合格；移动和联通可正常进入短信验收。
 
 ## 直接使用发布包
 
@@ -54,7 +54,7 @@ GitHub 暂时不可用时，选择“本地固件目录”即可离线烧录。
 .\factory\start.ps1 --list-versions
 
 # 在线选择指定版本量产
-.\factory\start.ps1 --all --version v1.4.1 --require-sim --require-network
+.\factory\start.ps1 --all --version v1.4.2 --require-sim --require-network
 
 # 在线选择最新版本并保留配置
 .\factory\start.ps1 --ports COM3 COM4 --version latest --keep-data

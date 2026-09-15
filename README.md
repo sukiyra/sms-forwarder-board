@@ -7,6 +7,7 @@
 ## 主要能力
 
 - 自动识别 ML307A、ML307C、ML307R、ML307Y，并按模组能力选择短信上报方式。
+- 国内版 ML307C 可在移动、联通、电信网络注册；本产品的短信收发只承诺中国移动和中国联通，电信网络仍可用于数据连接但界面会明确标记短信不可用。
 - 支持实体 SIM 与 eSIM/eUICC，首页显示号码、卡类型、ICCID 尾号、PLMN、漫游与注册状态。
 - 接收和主动发送短信；短信使用固定 50 条循环存储，不会无限占用 Flash。
 - 支持企业微信、飞书、Bark、电子邮件、钉钉、PushPlus、Server 酱、Gotify、Telegram 及自定义 HTTP 推送。
@@ -48,12 +49,6 @@
 
 不同 ML307 完整料号支持的频段和运营商不同。固件能够适配 AT 指令差异，但不能为硬件增加缺失的射频频段。采购和量产前必须按完整丝印、模组规格书、SIM 套餐及当地网络实测。
 
-## 自制硬件
-
-仓库同时提供一套从零设计的 Rev 1.0 四层板，采用 ESP32-C3-MINI-1、ML307A、Nano SIM、USB-A 直插供电及 LTE/GNSS U.FL 天线接口。可编辑 KiCad 工程、Gerber、钻孔、贴片坐标、BOM、原理图和装配说明见 [hardware/README.md](hardware/README.md)。
-
-Rev 1.0 PCB 只适配 94-pin 的 ML307A-DSLN/DCLN。ML307C 与 ML307Y 是 109-pin 封装，需要各自的 PCB 变体。当前资料已经通过 KiCad ERC/DRC，但仍属于工程样板；首批必须先做电源、射频、SIM、驻网、短信和 24 小时稳定性验证。
-
 ## 首次启动
 
 设备没有可用 Wi-Fi 配置时会开启 `sms-forwarder` 配置热点。连接后访问 `http://192.168.4.1`，初始化引导会自动扫描附近网络；选择 Wi-Fi、输入密码并完成连接测试后保存。设备接入局域网后，通过路由器分配的 IP 打开管理台。
@@ -89,7 +84,7 @@ arduino-cli compile `
 python .\factory\production_tool.py --list-versions
 
 # 选择指定 Release，并烧录所有自动识别的 ESP32 串口
-python .\factory\production_tool.py --all --version v1.4.1 --require-sim --require-network
+python .\factory\production_tool.py --all --version v1.4.2 --require-sim --require-network
 
 # 使用最新 Release，保留设备已有配置
 python .\factory\production_tool.py --ports COM3 --version latest --keep-data
@@ -113,4 +108,4 @@ python .\factory\production_tool.py --ports COM3 --skip-flash --require-sim --re
 
 ## 许可证与来源
 
-固件、Web 管理台和量产工具使用 [MIT License](LICENSE)。`hardware/` 下的电路设计与制造资料使用 [CERN-OHL-P-2.0](hardware/LICENSE-CERN-OHL-P-2.0.txt)，硬件来源位置声明见 [hardware/NOTICE](hardware/NOTICE)。新仓库由 sukiyra 独立维护；早期 MIT 代码的版权声明和来源记录保存在 [NOTICE](NOTICE) 中。提交修复和功能前请确保不包含 SIM 完整 ICCID、手机号、Wi-Fi 密码或推送密钥。
+固件、Web 管理台和量产工具使用 [MIT License](LICENSE)。新仓库由 sukiyra 独立维护；早期 MIT 代码的版权声明和来源记录保存在 [NOTICE](NOTICE) 中。提交修复和功能前请确保不包含 SIM 完整 ICCID、手机号、Wi-Fi 密码或推送密钥。
