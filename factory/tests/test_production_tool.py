@@ -22,7 +22,7 @@ def ready_status(family="ML307Y"):
     return {
         "firmware": "sukiyra-test",
         "chip": {"model": "ESP32-C3", "id": "AABBCCDDEEFF"},
-        "ota": {"supported": True, "partitionSize": 2031616, "runningPartition": "app0"},
+        "ota": {"supported": True, "partitionSize": 1966080, "runningPartition": "app0"},
         "modem": {
             "supported": True,
             "family": family,

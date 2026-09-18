@@ -87,7 +87,7 @@ jobs:
 
     - name: Compile firmware
       run: |
-        arduino-cli compile --fqbn esp32:esp32:makergo_c3_supermini --build-property upload.maximum_size=2031616 --output-dir ./fw ./code
+        arduino-cli compile --fqbn esp32:esp32:makergo_c3_supermini --build-property upload.maximum_size=1966080 --output-dir ./fw ./code
 
     - name: Create production firmware bundle
       run: python ./factory/make_manifest.py ./fw ./factory/dist

@@ -32,7 +32,7 @@ class PartitionManifestTests(unittest.TestCase):
     def test_coredump_instead_of_littlefs_is_rejected(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "partitions.bin"
-            payload = partition_payload({"spiffs": (0x01, 0x03, 0x3F0000, 0x10000)})
+            payload = partition_payload({"spiffs": (0x01, 0x03, 0x3D0000, 0x20000)})
             path.write_bytes(payload)
             with self.assertRaisesRegex(RuntimeError, "spiffs"):
                 validate_partition_table(path)

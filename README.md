@@ -80,12 +80,12 @@ PowerShell：
 ```powershell
 arduino-cli compile `
   --fqbn esp32:esp32:makergo_c3_supermini `
-  --build-property upload.maximum_size=2031616 `
+  --build-property upload.maximum_size=1966080 `
   --output-dir .\build `
   .\code
 ```
 
-仓库内的 `code/partitions.csv` 定义 4 MB Flash 双应用分区：`app0` 与 `app1` 各 1,984 KB，并保留 NVS、OTA 状态和 64 KB LittleFS 短信存储分区。不要用 Arduino 菜单中的单应用分区覆盖它。
+仓库内的 `code/partitions.csv` 定义 4 MB Flash 双应用分区：`app0` 与 `app1` 各 1,920 KB，并保留 NVS、OTA 状态、128 KB LittleFS 短信存储和 64 KB 崩溃转储分区。不要用 Arduino 菜单中的单应用分区覆盖它。
 
 ## 在线 OTA
 

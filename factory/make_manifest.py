@@ -25,9 +25,10 @@ PARTITION_ENTRY = struct.Struct("<HBBII16sI")
 EXPECTED_PARTITIONS = {
     "nvs": (0x01, 0x02, 0x9000, 0x5000),
     "otadata": (0x01, 0x00, 0xE000, 0x2000),
-    "app0": (0x00, 0x10, 0x10000, 0x1F0000),
-    "app1": (0x00, 0x11, 0x200000, 0x1F0000),
-    "spiffs": (0x01, 0x82, 0x3F0000, 0x10000),
+    "app0": (0x00, 0x10, 0x10000, 0x1E0000),
+    "app1": (0x00, 0x11, 0x1F0000, 0x1E0000),
+    "spiffs": (0x01, 0x82, 0x3D0000, 0x20000),
+    "coredump": (0x01, 0x03, 0x3F0000, 0x10000),
 }
 
 
@@ -113,7 +114,7 @@ def build_manifest(repo: Path, build: Path, output: Path) -> dict:
         "fqbn": "esp32:esp32:makergo_c3_supermini",
         "partitionScheme": "dual_ota_4mb",
         "otaCapable": True,
-        "storage": {"type": "littlefs", "offset": "0x3f0000", "size": 65536},
+        "storage": {"type": "littlefs", "offset": "0x3d0000", "size": 131072},
         "supportedModems": ["ML307A", "ML307C", "ML307R", "ML307Y"],
         "images": images,
     }
