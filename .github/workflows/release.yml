@@ -140,6 +140,9 @@ jobs:
             --name sms-forwarder-production-tool `
             --hidden-import serial --hidden-import serial.tools.list_ports `
             ./factory/production_tool.py
+          pyinstaller --noconfirm --clean --onefile --windowed `
+            --name sms-forwarder-lan-scanner `
+            ./factory/lan_scanner.py
           New-Item -ItemType Directory -Force ./release/tool | Out-Null
           Copy-Item ./dist/sms-forwarder-production-tool.exe ./release/tool/
           Copy-Item ./factory/README.md ./release/tool/README.md
@@ -149,12 +152,19 @@ jobs:
           if (-not $esptool) { throw 'esptool.exe not found after ESP32 core install' }
           Copy-Item $esptool.FullName ./release/tool/esptool.exe
           Compress-Archive -Path ./release/tool/* -DestinationPath "./release/sms-forwarder-production-tool-windows-${env:RELEASE_TAG}.zip" -CompressionLevel Optimal
+          New-Item -ItemType Directory -Force ./release/scanner | Out-Null
+          Copy-Item ./dist/sms-forwarder-lan-scanner.exe ./release/scanner/
+          Copy-Item ./factory/LAN_SCANNER_README.md ./release/scanner/README.md
+          Copy-Item ./LICENSE ./release/scanner/
+          Compress-Archive -Path ./release/scanner/* -DestinationPath "./release/sms-forwarder-lan-scanner-windows-${env:RELEASE_TAG}.zip" -CompressionLevel Optimal
 
       - name: Upload Windows release asset
         uses: actions/upload-artifact@v7
         with:
           name: release-windows-tool
-          path: ./release/sms-forwarder-production-tool-windows-*.zip
+          path: |
+            ./release/sms-forwarder-production-tool-windows-*.zip
+            ./release/sms-forwarder-lan-scanner-windows-*.zip
 
   publish:
     needs: [firmware, windows-tool]

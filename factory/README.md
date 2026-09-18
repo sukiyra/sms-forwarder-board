@@ -62,7 +62,7 @@ v1.5.0 起使用两个 1,984 KB 应用分区，支持管理台在线升级和启
 .\factory\start.ps1 --list-versions
 
 # 在线选择指定版本量产
-.\factory\start.ps1 --all --version v1.5.0 --require-sim --require-network
+.\factory\start.ps1 --all --version v1.6.0 --require-sim --require-network
 
 # 在线选择最新版本并保留配置
 .\factory\start.ps1 --ports COM3 COM4 --version latest --keep-data

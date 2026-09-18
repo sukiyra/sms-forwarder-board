@@ -17,15 +17,17 @@
 - 人可读通知统一显示北京时间；开放 API 与本地记录继续使用 UTC ISO-8601，便于程序可靠解析和排序。
 - 响应式 Web 管理台，适配手机、普通桌面和超宽屏。
 - Windows 量产工具支持在线选择 GitHub Release 版本、多串口并行烧录和逐台验收。
+- Windows 局域网发现工具可自动列出同网段设备，并一键打开对应管理页面。
 - 支持从 GitHub Releases 在线检查和安装 OTA 更新；使用双应用分区、HTTPS 证书校验、SHA-256 校验与启动失败自动回滚。
 - 每台设备输出 CSV 与 JSON 量产记录，不记录短信正文、Wi-Fi 密码或推送密钥。
 
 ## 下载与烧录
 
-打开仓库的 [Releases](https://github.com/sukiyra/sms-forwarder-board/releases)，每个版本提供两个压缩包和一个 OTA 固件：
+打开仓库的 [Releases](https://github.com/sukiyra/sms-forwarder-board/releases)，每个版本提供三个压缩包和一个 OTA 固件：
 
 - `sms-forwarder-firmware-vX.Y.Z.zip`：带 SHA-256 清单的 ESP32-C3 固件。
 - `sms-forwarder-production-tool-windows-vX.Y.Z.zip`：Windows 单文件量产工具与 `esptool.exe`。
+- `sms-forwarder-lan-scanner-windows-vX.Y.Z.zip`：自动发现局域网设备并打开管理台。
 - `sms-forwarder-ota-vX.Y.Z.bin`：设备在线升级使用的应用镜像。
 
 普通用户只需下载 Windows 工具包并解压：
@@ -37,6 +39,12 @@
 5. 只把显示 `PASS` 的设备作为通过品。
 
 在线固件会缓存在 `%LOCALAPPDATA%\SMS Forwarder Production Tool\firmware`。工具会验证 Release 压缩包结构、清单版本和每个镜像的 SHA-256；断网时可以切换到本地固件目录。
+
+## 局域网设备发现
+
+升级到 v1.6.0 或更高版本后，解压并运行 `sms-forwarder-lan-scanner.exe`。工具会扫描电脑的 IPv4 局域网，列出设备 IP、固件版本、模组型号、OTA 能力、MAC 和设备 ID；双击设备即可打开管理台。
+
+发现协议使用 UDP 37888 和每次扫描生成的随机 nonce。设备只回应同一子网请求，并限制回复频率。报文不包含手机号、ICCID、短信、Wi-Fi 密码、登录密码或推送密钥。路由器开启 AP 隔离或访客网络隔离时，设备之间无法互相发现。
 
 ## 支持的硬件
 
@@ -100,7 +108,7 @@ arduino-cli compile `
 python .\factory\production_tool.py --list-versions
 
 # 选择指定 Release，并烧录所有自动识别的 ESP32 串口
-python .\factory\production_tool.py --all --version v1.5.0 --require-sim --require-network
+python .\factory\production_tool.py --all --version v1.6.0 --require-sim --require-network
 
 # 使用最新 Release，保留设备已有配置
 python .\factory\production_tool.py --ports COM3 --version latest --keep-data
@@ -119,8 +127,8 @@ python .\factory\production_tool.py --ports COM3 --skip-flash --require-sim --re
 2. 嵌入式 JavaScript 语法检查。
 3. ESP32-C3 固件编译。
 4. 固件清单、USB 烧录 ZIP 与 OTA 应用镜像打包。
-5. Windows 单文件量产工具构建。
-6. 创建 GitHub Release 并上传固件包、OTA 镜像和 Windows 量产工具。
+5. Windows 单文件量产工具和局域网发现工具构建。
+6. 创建 GitHub Release 并上传固件包、OTA 镜像、量产工具和局域网发现工具。
 
 ## 许可证与来源
 

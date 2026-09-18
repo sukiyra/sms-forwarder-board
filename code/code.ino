@@ -13,6 +13,7 @@
 #include "sim_manager.h"
 #include "factory_serial.h"
 #include "ota_manager.h"
+#include "discovery.h"
 
 void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
@@ -62,6 +63,7 @@ void setup() {
   } else {
     wifiStartAp();
   }
+  discoveryBegin();
 
   // ---- NTP 时间同步 ----
   logCaptureLn(String("正在同步NTP时间..."));
@@ -104,6 +106,7 @@ void setup() {
 }
 
 void loop() {
+  discoveryLoop();
   otaManagerLoop();
   if (otaManagerBusy()) {
     // Version checks and downloads are exclusive maintenance operations.

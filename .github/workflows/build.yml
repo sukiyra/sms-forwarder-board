@@ -122,12 +122,19 @@ jobs:
           --name sms-forwarder-production-tool `
           --hidden-import serial --hidden-import serial.tools.list_ports `
           ./factory/production_tool.py
+        pyinstaller --noconfirm --clean --onefile --windowed `
+          --name sms-forwarder-lan-scanner `
+          ./factory/lan_scanner.py
         New-Item -ItemType Directory -Force ./production-package/dist | Out-Null
         Copy-Item ./dist/sms-forwarder-production-tool.exe ./production-package/
         Copy-Item ./factory/README.md ./production-package/
         $esptool = Get-ChildItem "$env:LOCALAPPDATA\Arduino15\packages\esp32\tools\esptool_py" -Filter esptool.exe -Recurse | Select-Object -First 1
         if (-not $esptool) { throw 'esptool.exe not found after ESP32 core install' }
         Copy-Item $esptool.FullName ./production-package/esptool.exe
+        New-Item -ItemType Directory -Force ./scanner-package | Out-Null
+        Copy-Item ./dist/sms-forwarder-lan-scanner.exe ./scanner-package/
+        Copy-Item ./factory/LAN_SCANNER_README.md ./scanner-package/README.md
+        Copy-Item ./LICENSE ./scanner-package/
 
     - name: Download production firmware
       uses: actions/download-artifact@v8
@@ -140,3 +147,9 @@ jobs:
       with:
         name: production-package-windows
         path: ./production-package/*
+
+    - name: Upload Windows LAN scanner
+      uses: actions/upload-artifact@v7
+      with:
+        name: lan-scanner-windows
+        path: ./scanner-package/*

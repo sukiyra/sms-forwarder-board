@@ -70,16 +70,20 @@ code/
 ├── operator_manager.*    # 异步扫描、手动选网与自动选网任务
 ├── web_handlers.h / .cpp # HTTP 请求处理器 + 日志环形缓冲区
 ├── web_html.h / .cpp     # SPA HTML 页面模板（单页 10 个面板）
+├── discovery.h / .cpp    # UDP 37888 局域网设备发现
+├── ota_manager.h / .cpp  # GitHub Release 在线升级、摘要校验与回滚确认
+├── ota_policy.h / .cpp   # 可在主机测试的版本与资产校验策略
+└── partitions.csv        # 4 MB Flash 双 OTA 分区表
 ```
 
 ## 编译与烧录
 
 ```powershell
 # 编译
-arduino-cli compile --fqbn esp32:esp32:makergo_c3_supermini --board-options PartitionScheme=no_ota --output-dir ".\build" ".\code"
+arduino-cli compile --fqbn esp32:esp32:makergo_c3_supermini --build-property upload.maximum_size=2031616 --output-dir ".\build" ".\code"
 
 # 烧录
-arduino-cli upload --fqbn esp32:esp32:makergo_c3_supermini --board-options PartitionScheme=no_ota --port COM3 --input-dir ".\build" ".\code"
+arduino-cli upload --fqbn esp32:esp32:makergo_c3_supermini --port COM3 --input-dir ".\build" ".\code"
 
 # 串口监视
 arduino-cli monitor --port COM3 --config 115200
