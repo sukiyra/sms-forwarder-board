@@ -51,10 +51,32 @@ class ProductionToolTests(unittest.TestCase):
     def test_requirements_are_enforced(self):
         status = ready_status()
         status["sim"]["ready"] = False
+        status["sim"]["smsReady"] = False
+        status["sim"]["smsAvailable"] = False
+        status["sim"]["smsCarrierSupport"] = "unknown"
+        status["modem"]["smsMode"] = "unconfigured"
         status["modem"]["registered"] = False
         failures = evaluate_status(status, True, True)
-        self.assertIn("SIM 未就绪", failures)
-        self.assertIn("未完成蜂窝网络注册", failures)
+        self.assertEqual(failures, ["SIM 未就绪"])
+
+    def test_blank_board_passes_hardware_acceptance_without_sim(self):
+        status = ready_status("ML307A")
+        status["sim"].update({
+            "ready": False,
+            "smsReady": False,
+            "smsAvailable": False,
+            "smsCarrierSupport": "unknown",
+            "type": "unknown",
+        })
+        status["modem"]["smsMode"] = "unconfigured"
+        status["modem"]["registered"] = False
+        self.assertEqual(evaluate_status(status, False, False), [])
+
+    def test_network_acceptance_reports_missing_sim_once(self):
+        status = ready_status("ML307A")
+        status["sim"]["ready"] = False
+        status["modem"]["registered"] = False
+        self.assertEqual(evaluate_status(status, False, True), ["SIM 未就绪，无法验证蜂窝网络"])
 
     def test_ml307c_telecom_sms_is_rejected(self):
         status = ready_status("ML307C")

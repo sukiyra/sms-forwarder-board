@@ -437,14 +437,22 @@ def evaluate_status(status: dict[str, Any], require_sim: bool, require_network: 
     family = str(modem.get("family", "")).upper()
     if not modem.get("supported") or family not in SUPPORTED_MODEMS:
         failures.append(f"模组未识别或不受支持：{family or 'unknown'}")
-    if require_sim and not sim.get("ready"):
-        failures.append("SIM 未就绪")
-    if require_sim and (not sim.get("smsReady") or modem.get("smsMode") not in {"direct", "stored"}):
-        failures.append("短信接口未配置")
-    if require_sim and sim.get("smsCarrierSupport") in {"unsupported", "unknown"} and sim.get("smsAvailable") is False:
-        failures.append("当前运营商不支持此 ML307C 的短信业务，或尚未确认运营商（仅支持移动/联通）")
-    if require_network and not modem.get("registered"):
-        failures.append("未完成蜂窝网络注册")
+    sim_ready = bool(sim.get("ready"))
+    if require_sim:
+        if not sim_ready:
+            failures.append("SIM 未就绪")
+        else:
+            if not sim.get("smsReady") or modem.get("smsMode") not in {"direct", "stored"}:
+                failures.append("短信接口未配置")
+            if (family == "ML307C"
+                    and sim.get("smsCarrierSupport") in {"unsupported", "unknown"}
+                    and sim.get("smsAvailable") is False):
+                failures.append("当前运营商不支持此 ML307C 的短信业务，或尚未确认运营商（仅支持移动/联通）")
+    if require_network:
+        if not sim_ready and not require_sim:
+            failures.append("SIM 未就绪，无法验证蜂窝网络")
+        elif sim_ready and not modem.get("registered"):
+            failures.append("未完成蜂窝网络注册")
     return failures
 
 
@@ -578,11 +586,15 @@ class ProductionApp:
         checks = ttk.Frame(frame)
         checks.pack(fill="x", pady=10)
         self.erase_var = tk.BooleanVar(value=True)
-        self.sim_var = tk.BooleanVar(value=True)
-        self.network_var = tk.BooleanVar(value=True)
+        self.sim_var = tk.BooleanVar(value=False)
+        self.network_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(checks, text="全片擦除（量产推荐）", variable=self.erase_var).pack(side="left")
-        ttk.Checkbutton(checks, text="要求 SIM 就绪", variable=self.sim_var).pack(side="left", padx=18)
-        ttk.Checkbutton(checks, text="要求成功驻网", variable=self.network_var).pack(side="left")
+        ttk.Checkbutton(checks, text="有卡验收：要求短信就绪", variable=self.sim_var).pack(side="left", padx=18)
+        ttk.Checkbutton(checks, text="有卡验收：要求成功驻网", variable=self.network_var).pack(side="left")
+        ttk.Label(
+            frame,
+            text="空板默认无需插 SIM：仍会验收 ESP32-C3、ML307 型号、固件和 USB 工厂通信；插入测试卡后再勾选有卡验收。",
+        ).pack(anchor="w", pady=(0, 10))
 
         toolbar = ttk.Frame(frame)
         toolbar.pack(fill="x", pady=(0, 8))
@@ -671,6 +683,14 @@ class ProductionApp:
         erase = self.erase_var.get()
         require_sim = self.sim_var.get()
         require_network = self.network_var.get()
+        if require_sim or require_network:
+            self.log(
+                "验收模式：有卡验收"
+                + (" · 短信" if require_sim else "")
+                + (" · 蜂窝驻网" if require_network else "")
+            )
+        else:
+            self.log("验收模式：无卡硬件验收（ESP32-C3、ML307、固件、USB 通信）")
         for port in selected:
             self.tree.set(self.port_rows[port], "status", "处理中")
 

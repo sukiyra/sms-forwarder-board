@@ -1,6 +1,6 @@
 # Windows 批量量产工具
 
-量产工具用于在线选择 GitHub Release 固件、并行烧录多块 ESP32-C3，并通过 USB 工厂协议验收 ESP32、ML307、SIM、短信配置和蜂窝注册。国内版 ML307C 使用电信网络时，“要求 SIM 就绪”会判定短信能力不合格；移动和联通可正常进入短信验收。
+量产工具用于在线选择 GitHub Release 固件、并行烧录多块 ESP32-C3，并通过 USB 工厂协议验收 ESP32、ML307、SIM、短信配置和蜂窝注册。空板默认使用无卡硬件验收；插入测试卡后可额外要求短信和驻网通过。国内版 ML307C 使用电信网络时，“有卡验收：要求短信就绪”会判定短信能力不合格；移动和联通可正常进入短信验收。
 
 ## 直接使用发布包
 
@@ -9,8 +9,10 @@
 3. 双击 `sms-forwarder-production-tool.exe`。
 4. 等待“GitHub 版本”下拉框加载，选择要量产的版本。
 5. 插入设备并刷新串口，可一次多选并行烧录。
-6. 根据产品要求勾选“要求 SIM 就绪”和“要求成功驻网”。
+6. 新焊空板保持两个“有卡验收”选项不勾选；需要测试 SIM、短信和驻网时，插入测试卡后再勾选相应项目。
 7. 点击“开始所选设备”，只接收显示 `PASS` 的设备。
+
+无卡硬件验收仍会检查 ESP32-C3、Flash 烧录、固件工厂协议、USB 串口和 ML307 完整型号。未插 SIM 时不会把短信接口、运营商和蜂窝注册列为失败项，也不会掩盖主控或模组识别故障。
 
 工具从 `sukiyra/sms-forwarder-board` 的 Releases 下载包含 `firmware` 的 ZIP。下载后会校验压缩包路径、版本号、ESP32-C3 芯片类型以及清单内每个镜像的 SHA-256。
 
@@ -54,7 +56,7 @@ GitHub 暂时不可用时，选择“本地固件目录”即可离线烧录。
 .\factory\start.ps1 --list-versions
 
 # 在线选择指定版本量产
-.\factory\start.ps1 --all --version v1.4.2 --require-sim --require-network
+.\factory\start.ps1 --all --version v1.4.3 --require-sim --require-network
 
 # 在线选择最新版本并保留配置
 .\factory\start.ps1 --ports COM3 COM4 --version latest --keep-data
@@ -62,7 +64,10 @@ GitHub 暂时不可用时，选择“本地固件目录”即可离线烧录。
 # 使用本地固件目录
 .\factory\start.ps1 --ports COM3 --firmware-dir .\factory\dist
 
-# 只验收已烧录设备
+# 只验收已烧录空板（无需 SIM）
+.\factory\start.ps1 --ports COM3 --skip-flash
+
+# 只验收已烧录设备，并要求 SIM、短信和驻网通过
 .\factory\start.ps1 --ports COM3 --skip-flash --require-sim --require-network
 ```
 

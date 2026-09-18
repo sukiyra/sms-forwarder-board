@@ -84,7 +84,7 @@ arduino-cli compile `
 python .\factory\production_tool.py --list-versions
 
 # 选择指定 Release，并烧录所有自动识别的 ESP32 串口
-python .\factory\production_tool.py --all --version v1.4.2 --require-sim --require-network
+python .\factory\production_tool.py --all --version v1.4.3 --require-sim --require-network
 
 # 使用最新 Release，保留设备已有配置
 python .\factory\production_tool.py --ports COM3 --version latest --keep-data
