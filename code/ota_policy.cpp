@@ -70,6 +70,18 @@ bool validSha256Digest(const char *value) {
   return true;
 }
 
+bool validGithubAssetApiUrl(const char *value) {
+  static const char prefix[] =
+      "https://api.github.com/repos/sukiyra/sms-forwarder-board/releases/assets/";
+  if (!value || strncmp(value, prefix, sizeof(prefix) - 1) != 0) return false;
+  value += sizeof(prefix) - 1;
+  if (!*value) return false;
+  for (; *value; ++value) {
+    if (!isdigit(static_cast<unsigned char>(*value))) return false;
+  }
+  return true;
+}
+
 bool validOtaAsset(const char *tag, const char *assetName, const char *digest,
                    size_t size, size_t partitionSize) {
   if (!tag || !assetName || !validSha256Digest(digest)) return false;

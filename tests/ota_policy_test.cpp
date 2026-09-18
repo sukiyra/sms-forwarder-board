@@ -24,6 +24,15 @@ int main() {
   assert(!otapolicy::validSha256Digest(("md5:" + std::string(64, 'a')).c_str()));
   assert(!otapolicy::validSha256Digest(("sha256:" + std::string(63, 'a') + "z").c_str()));
 
+  assert(otapolicy::validGithubAssetApiUrl(
+      "https://api.github.com/repos/sukiyra/sms-forwarder-board/releases/assets/573135715"));
+  assert(!otapolicy::validGithubAssetApiUrl(
+      "https://github.com/sukiyra/sms-forwarder-board/releases/download/v1.6.2/fw.bin"));
+  assert(!otapolicy::validGithubAssetApiUrl(
+      "https://api.github.com/repos/other/sms-forwarder-board/releases/assets/573135715"));
+  assert(!otapolicy::validGithubAssetApiUrl(
+      "https://api.github.com/repos/sukiyra/sms-forwarder-board/releases/assets/../573135715"));
+
   assert(otapolicy::validOtaAsset("v1.5.1", "sms-forwarder-ota-v1.5.1.bin",
                                   digest.c_str(), 1700000, 0x1e0000));
   assert(!otapolicy::validOtaAsset("v1.5.1", "firmware.bin", digest.c_str(),

@@ -27,8 +27,6 @@ namespace {
 
 constexpr char RELEASE_API[] =
     "https://api.github.com/repos/sukiyra/sms-forwarder-board/releases/latest";
-constexpr char RELEASE_ASSET_PREFIX[] =
-    "https://github.com/sukiyra/sms-forwarder-board/releases/download/";
 constexpr unsigned long QUEUE_DELAY_MS = 350;
 constexpr unsigned long METADATA_MAX_AGE_MS = 10UL * 60UL * 1000UL;
 constexpr unsigned long DOWNLOAD_IDLE_TIMEOUT_MS = 20000;
@@ -131,12 +129,12 @@ void configureSecureClient(NetworkClientSecure &client) {
   client.setHandshakeTimeout(15);
 }
 
-void configureHttp(HTTPClient &http) {
+void configureHttp(HTTPClient &http, const char *accept) {
   http.setConnectTimeout(12000);
   http.setTimeout(20000);
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
   http.setUserAgent("sms-forwarder-board/" FIRMWARE_VERSION);
-  http.addHeader("Accept", "application/vnd.github+json");
+  http.addHeader("Accept", accept);
   http.addHeader("X-GitHub-Api-Version", "2022-11-28");
 }
 
@@ -181,7 +179,7 @@ void checkLatestRelease() {
     fail("无法创建 GitHub 更新请求");
     return;
   }
-  configureHttp(http);
+  configureHttp(http, "application/vnd.github+json");
   int code = http.GET();
   if (code != HTTP_CODE_OK) {
     String reason = code > 0 ? String("GitHub 返回 HTTP ") + code : http.errorToString(code);
@@ -212,7 +210,7 @@ void checkLatestRelease() {
   filter["draft"] = true;
   filter["prerelease"] = true;
   filter["assets"][0]["name"] = true;
-  filter["assets"][0]["browser_download_url"] = true;
+  filter["assets"][0]["url"] = true;
   filter["assets"][0]["digest"] = true;
   filter["assets"][0]["size"] = true;
   JsonDocument doc;
@@ -244,10 +242,10 @@ void checkLatestRelease() {
 
   for (JsonObject asset : doc["assets"].as<JsonArray>()) {
     String name = asset["name"] | "";
-    String url = asset["browser_download_url"] | "";
+    String url = asset["url"] | "";
     String digest = asset["digest"] | "";
     size_t size = asset["size"] | 0;
-    if (!url.startsWith(RELEASE_ASSET_PREFIX)) continue;
+    if (!otapolicy::validGithubAssetApiUrl(url.c_str())) continue;
     if (!otapolicy::validOtaAsset(tag.c_str(), name.c_str(), digest.c_str(), size,
                                   job.partitionSize)) {
       continue;
@@ -289,7 +287,7 @@ void beginInstall() {
     return;
   }
   downloadHttpOpen = true;
-  configureHttp(downloadHttp);
+  configureHttp(downloadHttp, "application/octet-stream");
   int code = downloadHttp.GET();
   if (code != HTTP_CODE_OK) {
     String reason = code > 0 ? String("固件服务器返回 HTTP ") + code
