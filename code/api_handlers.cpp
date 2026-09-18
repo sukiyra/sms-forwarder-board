@@ -3,6 +3,7 @@
 #include "auth.h"
 #include "config.h"
 #include "esim_manager.h"
+#include "health_policy.h"
 #include "modem.h"
 #include "operator_manager.h"
 #include "ota_manager.h"
@@ -12,7 +13,30 @@
 #include "sms_store.h"
 #include "web_handlers.h"
 
+#include <esp_system.h>
+
 namespace {
+
+const char* resetReasonName(esp_reset_reason_t reason) {
+  switch (reason) {
+    case ESP_RST_POWERON: return "power_on";
+    case ESP_RST_EXT: return "external";
+    case ESP_RST_SW: return "software";
+    case ESP_RST_PANIC: return "panic";
+    case ESP_RST_INT_WDT: return "interrupt_watchdog";
+    case ESP_RST_TASK_WDT: return "task_watchdog";
+    case ESP_RST_WDT: return "watchdog";
+    case ESP_RST_DEEPSLEEP: return "deep_sleep";
+    case ESP_RST_BROWNOUT: return "brownout";
+    case ESP_RST_SDIO: return "sdio";
+    case ESP_RST_USB: return "usb";
+    case ESP_RST_JTAG: return "jtag";
+    case ESP_RST_EFUSE: return "efuse";
+    case ESP_RST_PWR_GLITCH: return "power_glitch";
+    case ESP_RST_CPU_LOCKUP: return "cpu_lockup";
+    default: return "unknown";
+  }
+}
 
 enum OutboundSmsState {
   OUTBOUND_IDLE,
@@ -100,13 +124,37 @@ void handleApiStatus() {
   bool smsAvailable = simManagerIsReady() && simManagerSmsReady() &&
                       !modemSmsCarrierBlocked();
   String smsCarrierMessage = modemSmsCarrierMessage();
+  const uint32_t heapTotal = ESP.getHeapSize();
+  const uint32_t heapFree = ESP.getFreeHeap();
+  const uint32_t heapMin = ESP.getMinFreeHeap();
+  const uint32_t heapLargest = ESP.getMaxAllocHeap();
+  const bool storageReady = smsStoreIsReady();
+  const size_t storageTotal = smsStoreStorageTotal();
+  const size_t storageUsed = smsStoreStorageUsed();
+  const healthpolicy::Snapshot healthSnapshot = {
+      heapTotal, heapFree, heapMin, heapLargest, storageReady};
+  const healthpolicy::Level healthLevel = healthpolicy::evaluate(healthSnapshot);
+  const uint8_t heapUsedPercent = healthpolicy::usedPercent(
+      heapTotal > heapFree ? heapTotal - heapFree : 0, heapTotal);
+  const uint8_t heapFragmentation =
+      healthpolicy::fragmentationPercent(heapFree, heapLargest);
+  const uint8_t storageUsedPercent = healthpolicy::usedPercent(storageUsed, storageTotal);
   String json;
-  json.reserve(1700);
+  json.reserve(2300);
   json = "{\"ok\":true,\"firmware\":\"" FIRMWARE_VERSION "\",\"uptime\":" + String(millis() / 1000) +
-         ",\"heap\":" + String(ESP.getFreeHeap()) + ",\"epoch\":" + String(static_cast<unsigned long>(time(nullptr))) +
+         ",\"heap\":" + String(heapFree) + ",\"epoch\":" + String(static_cast<unsigned long>(time(nullptr))) +
          ",\"wifi\":{\"connected\":" + String(WiFi.isConnected() ? "true" : "false") +
          ",\"ssid\":\"" + jsonEscape(WiFi.SSID()) + "\",\"rssi\":" + String(WiFi.RSSI()) +
-         ",\"ip\":\"" + WiFi.localIP().toString() + "\"},\"modem\":{\"ready\":" +
+         ",\"ip\":\"" + WiFi.localIP().toString() + "\"},\"health\":{\"state\":\"" +
+         String(healthpolicy::levelName(healthLevel)) + "\",\"heapTotal\":" + String(heapTotal) +
+         ",\"heapFree\":" + String(heapFree) + ",\"heapMin\":" + String(heapMin) +
+         ",\"heapLargest\":" + String(heapLargest) + ",\"heapUsedPercent\":" +
+         String(heapUsedPercent) + ",\"fragmentationPercent\":" + String(heapFragmentation) +
+         ",\"storageReady\":" + String(storageReady ? "true" : "false") +
+         ",\"storageTotal\":" + String(static_cast<unsigned long>(storageTotal)) +
+         ",\"storageUsed\":" + String(static_cast<unsigned long>(storageUsed)) +
+         ",\"storageUsedPercent\":" + String(storageUsedPercent) + ",\"resetReason\":\"" +
+         String(resetReasonName(esp_reset_reason())) + "\"},\"modem\":{\"ready\":" +
          String(modemReady ? "true" : "false") + ",\"model\":\"" + jsonEscape(detectedModemModel) +
          "\",\"family\":\"" + jsonEscape(detectedModemFamily) +
          "\",\"supported\":" + String(modemModelSupported() ? "true" : "false") +

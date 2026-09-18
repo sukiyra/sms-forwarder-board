@@ -169,10 +169,11 @@ sendEmailNotification()   发送 "配置已更新" 邮件
 - 全局变量占用：~43KB
 - PDU 缓冲区：4096 字节（`pdu = PDU(4096)`）
 - 长短信缓存：5 组 × 10 段，每段内容动态分配（`String`）
-- 日志环形缓冲区：120 行 × String，约 12KB
-- 日志行缓冲区：1 个 String（`_logLine`），用于合并 logCapture 输出
+- 日志环形缓冲区：80 行 × String，单行硬上限 320 字节
+- 日志行缓冲区：1 个有界 String（`_logLine`），用于合并 logCapture 输出
 - 串口行缓冲：500 字节（`SERIAL_BUFFER_SIZE`）
 - HTTP 响应在函数内栈分配，调用结束自动释放
+- `/api/status` 报告当前/历史最低堆、最大连续块、碎片率、LittleFS 占用与复位原因；`health_policy` 使用固定阈值统一输出健康等级
 
 ## 关键硬件引脚
 

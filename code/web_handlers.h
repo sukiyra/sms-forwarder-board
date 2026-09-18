@@ -3,7 +3,8 @@
 
 #include "globals.h"
 
-#define LOG_BUF_SIZE 120
+#define LOG_BUF_SIZE 80
+#define LOG_LINE_MAX_SIZE 320
 
 extern String logBuffer[LOG_BUF_SIZE];
 extern int logBufIdx;

@@ -72,6 +72,14 @@ jobs:
           -o /tmp/ota_policy_test
         /tmp/ota_policy_test
 
+    - name: Test device health policy
+      run: |
+        g++ -std=c++17 -Wall -Wextra -pedantic \
+          -I ./code \
+          ./code/health_policy.cpp ./tests/health_policy_test.cpp \
+          -o /tmp/health_policy_test
+        /tmp/health_policy_test
+
     - name: Validate embedded UI JavaScript
       run: |
         python - <<'PY'

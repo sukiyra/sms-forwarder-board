@@ -13,6 +13,25 @@ String logBuffer[LOG_BUF_SIZE];
 int logBufIdx = 0;
 int logBufCount = 0;
 static String _logLine;  // 行缓冲：logCapture 写入这里，logCaptureLn 提交整行
+static bool _logLineTruncated = false;
+
+static void _logAppendCurrent(const char* data, size_t length) {
+  if (!data || length == 0 || _logLineTruncated) return;
+  const size_t markerSize = 3;
+  const size_t contentLimit = LOG_LINE_MAX_SIZE - markerSize;
+  if (_logLine.length() >= contentLimit) {
+    _logLine += "...";
+    _logLineTruncated = true;
+    return;
+  }
+  const size_t available = contentLimit - _logLine.length();
+  const size_t accepted = length < available ? length : available;
+  _logLine.concat(data, static_cast<unsigned int>(accepted));
+  if (accepted < length) {
+    _logLine += "...";
+    _logLineTruncated = true;
+  }
+}
 
 static void _logAppend(const String& line) {
   logBuffer[logBufIdx] = line;
@@ -25,16 +44,17 @@ static void _logCommit() {
     _logAppend(_logLine);
     _logLine = "";
   }
+  _logLineTruncated = false;
 }
 
 void logCapture(const String& msg) {
   Serial.print(msg);
-  _logLine += msg;
+  _logAppendCurrent(msg.c_str(), msg.length());
 }
 
 void logCapture(const char* msg) {
   Serial.print(msg);
-  _logLine += msg;
+  _logAppendCurrent(msg, msg ? strlen(msg) : 0);
 }
 
 void logCaptureF(const char* fmt, ...) {
@@ -44,7 +64,7 @@ void logCaptureF(const char* fmt, ...) {
   vsnprintf(buf, sizeof(buf), fmt, args);
   va_end(args);
   Serial.print(buf);
-  _logLine += buf;
+  _logAppendCurrent(buf, strlen(buf));
   // 如果格式化字符串以 \n 结尾，则提交此行
   size_t len = strlen(buf);
   if (len > 0 && buf[len - 1] == '\n') {
@@ -55,13 +75,13 @@ void logCaptureF(const char* fmt, ...) {
 
 void logCaptureLn(const String& msg) {
   Serial.println(msg);
-  _logLine += msg;
+  _logAppendCurrent(msg.c_str(), msg.length());
   _logCommit();
 }
 
 void logCaptureLn(const char* msg) {
   Serial.println(msg);
-  _logLine += msg;
+  _logAppendCurrent(msg, msg ? strlen(msg) : 0);
   _logCommit();
 }
 

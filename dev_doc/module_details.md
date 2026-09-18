@@ -408,8 +408,8 @@ checkSerial1URC() 循环:
 ### 日志环形缓冲区
 
 ```
-容量: LOG_BUF_SIZE = 120 行
-结构: String logBuffer[120] + 行缓冲 _logLine
+容量: LOG_BUF_SIZE = 80 行，每行最多 320 字节
+结构: String logBuffer[80] + 有界行缓冲 _logLine
 写入:
   logCapture(msg)      → Serial.print() + 追加到 _logLine
   logCaptureLn(msg)    → Serial.println() + 提交 _logLine 到环形缓冲区
@@ -418,7 +418,7 @@ checkSerial1URC() 循环:
   handlerLog()         → JSON ["行1","行2",...] (按插入顺序)
 ```
 
-**行缓冲设计目的**: 避免 `logCapture("A:"); logCaptureLn(B);` 在环形缓冲区中产生两个独立条目。实际只产生一行 `"A: B"`。
+**行缓冲设计目的**: 避免 `logCapture("A:"); logCaptureLn(B);` 在环形缓冲区中产生两个独立条目。实际只产生一行 `"A: B"`。长度上限用于阻止连续异常输出造成动态内存持续增长。
 
 ### 模板变量替换
 

@@ -436,6 +436,18 @@ bool smsStoreBegin() {
   return true;
 }
 
+bool smsStoreIsReady() {
+  return storeReady;
+}
+
+size_t smsStoreStorageTotal() {
+  return storeReady ? LittleFS.totalBytes() : 0;
+}
+
+size_t smsStoreStorageUsed() {
+  return storeReady ? LittleFS.usedBytes() : 0;
+}
+
 uint32_t smsStoreAdd(const char* sender,
                      const char* body,
                      const char* timestamp,

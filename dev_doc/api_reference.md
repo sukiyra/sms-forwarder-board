@@ -315,6 +315,31 @@ WAIT_PDU 状态读取 PDU hex 数据 → `pdu.decodePDU()` 解析 → 根据 `co
 `AT+CESQ` 的 RSRP 原始编码。信号未知、采样超过 45 秒或 SIM 不可用时，数值
 字段返回 `null` 且 `known` 为 `false`。
 
+**设备健康字段**:
+
+```json
+{
+  "health": {
+    "state": "healthy",
+    "heapTotal": 286156,
+    "heapFree": 158704,
+    "heapMin": 152132,
+    "heapLargest": 114676,
+    "heapUsedPercent": 45,
+    "fragmentationPercent": 28,
+    "storageReady": true,
+    "storageTotal": 131072,
+    "storageUsed": 49152,
+    "storageUsedPercent": 38,
+    "resetReason": "power_on"
+  }
+}
+```
+
+`heapMin` 是本次启动以来的最低可用堆，`heapLargest` 是当前最大连续可分配块。
+`state` 由 `health_policy` 根据空闲余量、历史最低值、连续块、碎片率和 LittleFS
+状态统一计算，取值为 `healthy`、`warning` 或 `critical`。
+
 ## 模块: web_handlers.cpp — HTTP 处理
 
 ### 日志系统 API
@@ -336,7 +361,7 @@ logCaptureLn(String(phoneNumber));
 ### `void logCaptureLn(const char* msg)`
 **用途**: 输出日志并换行。将 `_logLine` + msg 提交到环形缓冲区，然后清空行缓冲区。同时输出到 `Serial.println`。
 
-**注意**: 环形缓冲区每调用一次 `logCaptureLn` 即可产生一行日志，因此 `logCapture()` 和 `logCaptureLn()` 的日志会在环形缓冲区中合并为同一行。
+**注意**: 环形缓冲区每调用一次 `logCaptureLn` 即可产生一行日志，因此 `logCapture()` 和 `logCaptureLn()` 的日志会在环形缓冲区中合并为同一行。每行最多保留 320 字节，超出部分截断，避免异常模组输出持续扩大动态内存。
 
 ---
 
@@ -352,7 +377,7 @@ logCaptureLn(String(phoneNumber));
 ```json
 ["行1", "行2", "行3", ...]
 ```
-**鉴权**: 需要 HTTP Basic Auth。最多返回 120 行（环形缓冲区容量）。
+**鉴权**: 需要有效管理会话。最多返回 80 行（环形缓冲区容量）。
 
 ---
 

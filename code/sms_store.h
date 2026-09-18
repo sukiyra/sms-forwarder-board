@@ -5,6 +5,9 @@
 
 // Mounts (and, on first use, initializes) the persistent SMS store.
 bool smsStoreBegin();
+bool smsStoreIsReady();
+size_t smsStoreStorageTotal();
+size_t smsStoreStorageUsed();
 
 // Adds an unread message. Returns a non-zero monotonically increasing id on
 // success, or 0 when the record could not be persisted.
