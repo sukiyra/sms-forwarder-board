@@ -17,14 +17,16 @@
 - 人可读通知统一显示北京时间；开放 API 与本地记录继续使用 UTC ISO-8601，便于程序可靠解析和排序。
 - 响应式 Web 管理台，适配手机、普通桌面和超宽屏。
 - Windows 量产工具支持在线选择 GitHub Release 版本、多串口并行烧录和逐台验收。
+- 支持从 GitHub Releases 在线检查和安装 OTA 更新；使用双应用分区、HTTPS 证书校验、SHA-256 校验与启动失败自动回滚。
 - 每台设备输出 CSV 与 JSON 量产记录，不记录短信正文、Wi-Fi 密码或推送密钥。
 
 ## 下载与烧录
 
-打开仓库的 [Releases](https://github.com/sukiyra/sms-forwarder-board/releases)，每个版本提供两个压缩包：
+打开仓库的 [Releases](https://github.com/sukiyra/sms-forwarder-board/releases)，每个版本提供两个压缩包和一个 OTA 固件：
 
 - `sms-forwarder-firmware-vX.Y.Z.zip`：带 SHA-256 清单的 ESP32-C3 固件。
 - `sms-forwarder-production-tool-windows-vX.Y.Z.zip`：Windows 单文件量产工具与 `esptool.exe`。
+- `sms-forwarder-ota-vX.Y.Z.bin`：设备在线升级使用的应用镜像。
 
 普通用户只需下载 Windows 工具包并解压：
 
@@ -70,12 +72,26 @@ PowerShell：
 ```powershell
 arduino-cli compile `
   --fqbn esp32:esp32:makergo_c3_supermini `
-  --board-options PartitionScheme=no_ota `
+  --build-property upload.maximum_size=2031616 `
   --output-dir .\build `
   .\code
 ```
 
-4 MB Flash 必须使用 `PartitionScheme=no_ota`，为嵌入式 Web 管理台和 LittleFS 留出空间。
+仓库内的 `code/partitions.csv` 定义 4 MB Flash 双应用分区：`app0` 与 `app1` 各 1,984 KB，并保留 NVS、OTA 状态和崩溃转储分区。不要用 Arduino 菜单中的单应用分区覆盖它。
+
+## 在线 OTA
+
+在“系统设置 → 在线固件升级”中检查并安装正式版。设备只接受本仓库最新 GitHub Release 中名称为 `sms-forwarder-ota-vX.Y.Z.bin` 的资产，并验证以下条件：
+
+- HTTPS 证书链有效，设备时间已通过 NTP 同步。
+- 目标版本高于当前版本，不允许在线降级。
+- 文件名称、Content-Length、Release 资产大小和备用分区容量一致。
+- 下载完成后的 SHA-256 与 GitHub Release 资产摘要一致。
+- ESP32 镜像头和写入完整性通过 Update/bootloader 校验。
+
+固件始终写入非活动分区。下载中断、摘要不符或写入失败不会切换启动分区；新版本首次启动必须完成配置、WiFi、Web 服务和模组初始化，之后才会确认镜像。此前发生崩溃或看门狗复位时，bootloader 会回滚到旧版本。
+
+从 v1.4.3 及更早的单应用分区升级时，必须先用 v1.5.0 或更高版本的量产包通过 USB 完整烧录一次分区表。完成这次迁移后，后续版本可直接在线升级。需要保留现有配置时，在量产工具中关闭“全片擦除”；NVS 地址保持不变。
 
 ## 量产工具命令行
 
@@ -84,7 +100,7 @@ arduino-cli compile `
 python .\factory\production_tool.py --list-versions
 
 # 选择指定 Release，并烧录所有自动识别的 ESP32 串口
-python .\factory\production_tool.py --all --version v1.4.3 --require-sim --require-network
+python .\factory\production_tool.py --all --version v1.5.0 --require-sim --require-network
 
 # 使用最新 Release，保留设备已有配置
 python .\factory\production_tool.py --ports COM3 --version latest --keep-data
@@ -102,9 +118,9 @@ python .\factory\production_tool.py --ports COM3 --skip-flash --require-sim --re
 1. Python 与 C++ 测试。
 2. 嵌入式 JavaScript 语法检查。
 3. ESP32-C3 固件编译。
-4. 固件清单与 ZIP 打包。
+4. 固件清单、USB 烧录 ZIP 与 OTA 应用镜像打包。
 5. Windows 单文件量产工具构建。
-6. 创建 GitHub Release 并上传两个版本包。
+6. 创建 GitHub Release 并上传固件包、OTA 镜像和 Windows 量产工具。
 
 ## 许可证与来源
 

@@ -24,6 +24,12 @@
 
 GitHub 暂时不可用时，选择“本地固件目录”即可离线烧录。
 
+## OTA 分区迁移
+
+v1.5.0 起使用两个 1,984 KB 应用分区，支持管理台在线升级和启动失败回滚。v1.4.3 及更早版本使用单应用分区，必须先通过本工具完整写入一次 v1.5.0 或更高版本；仅上传应用 BIN 无法建立 OTA 分区。
+
+迁移时需要保留 WiFi、推送和登录配置，可关闭“全片擦除”。NVS 的地址和大小没有变化。量产新板仍建议开启全片擦除。
+
 ## 擦除策略
 
 - 开启“全片擦除”：清除旧 Wi-Fi、推送配置和短信记录，适合正式出厂。
@@ -56,7 +62,7 @@ GitHub 暂时不可用时，选择“本地固件目录”即可离线烧录。
 .\factory\start.ps1 --list-versions
 
 # 在线选择指定版本量产
-.\factory\start.ps1 --all --version v1.4.3 --require-sim --require-network
+.\factory\start.ps1 --all --version v1.5.0 --require-sim --require-network
 
 # 在线选择最新版本并保留配置
 .\factory\start.ps1 --ports COM3 COM4 --version latest --keep-data

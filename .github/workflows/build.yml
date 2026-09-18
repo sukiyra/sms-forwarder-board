@@ -56,6 +56,14 @@ jobs:
           -o /tmp/sms_capability_test
         /tmp/sms_capability_test
 
+    - name: Test OTA policy
+      run: |
+        g++ -std=c++17 -Wall -Wextra -pedantic \
+          -I ./code \
+          ./code/ota_policy.cpp ./tests/ota_policy_test.cpp \
+          -o /tmp/ota_policy_test
+        /tmp/ota_policy_test
+
     - name: Validate embedded UI JavaScript
       run: |
         python - <<'PY'
@@ -71,7 +79,7 @@ jobs:
 
     - name: Compile firmware
       run: |
-        arduino-cli compile --fqbn esp32:esp32:makergo_c3_supermini --board-options PartitionScheme=no_ota --output-dir ./fw ./code
+        arduino-cli compile --fqbn esp32:esp32:makergo_c3_supermini --build-property upload.maximum_size=2031616 --output-dir ./fw ./code
 
     - name: Create production firmware bundle
       run: python ./factory/make_manifest.py ./fw ./factory/dist

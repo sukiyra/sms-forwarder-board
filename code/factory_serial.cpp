@@ -4,6 +4,7 @@
 #include "globals.h"
 #include "modem.h"
 #include "operator_manager.h"
+#include "ota_manager.h"
 #include "sim_manager.h"
 
 namespace {
@@ -47,7 +48,11 @@ void printFactoryStatus() {
       "\",\"chip\":{\"model\":\"" + jsonEscapeFactory(ESP.getChipModel()) +
       "\",\"revision\":" + String(ESP.getChipRevision()) +
       ",\"id\":\"" + chipId() + "\",\"flashBytes\":" + String(ESP.getFlashChipSize()) +
-      ",\"heap\":" + String(ESP.getFreeHeap()) + "},\"modem\":{\"supported\":" +
+      ",\"heap\":" + String(ESP.getFreeHeap()) + "},\"ota\":{\"supported\":" +
+      String(otaManagerSupported() ? "true" : "false") +
+      ",\"partitionSize\":" + String(otaManagerPartitionSize()) +
+      ",\"runningPartition\":\"" + jsonEscapeFactory(otaManagerRunningPartition()) +
+      "\"},\"modem\":{\"supported\":" +
       String(modemModelSupported() ? "true" : "false") +
       ",\"family\":\"" + jsonEscapeFactory(detectedModemFamily) +
       "\",\"model\":\"" + jsonEscapeFactory(detectedModemModel) +

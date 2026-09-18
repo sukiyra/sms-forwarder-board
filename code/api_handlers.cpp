@@ -5,6 +5,7 @@
 #include "esim_manager.h"
 #include "modem.h"
 #include "operator_manager.h"
+#include "ota_manager.h"
 #include "push.h"
 #include "sim_manager.h"
 #include "sms_process.h"
@@ -554,6 +555,36 @@ void handleApiSmsSendStatus() {
   sendJsonResponse(200, outboundSmsJson());
 }
 
+void handleApiOtaStatus() {
+  if (!authRequire()) return;
+  sendJsonResponse(200, otaManagerStatusJson());
+}
+
+void handleApiOtaCheck() {
+  if (!authRequireCsrf()) return;
+  String error;
+  if (!otaManagerQueueCheck(error)) {
+    sendJsonResponse(409, "{\"ok\":false,\"message\":\"" + jsonEscape(error) + "\"}");
+    return;
+  }
+  sendJsonResponse(202, otaManagerStatusJson());
+}
+
+void handleApiOtaInstall() {
+  if (!authRequireCsrf()) return;
+  if (outboundSmsBusyInternal() || esimIsBusy() || operatorManagerIsBusy() ||
+      simManagerIsBusy() || smsStoredMessageIsBusy() || modemIsBusy()) {
+    sendJsonResponse(409, "{\"ok\":false,\"message\":\"设备正在处理短信或蜂窝任务，请完成后再升级\"}");
+    return;
+  }
+  String error;
+  if (!otaManagerQueueInstall(error)) {
+    sendJsonResponse(409, "{\"ok\":false,\"message\":\"" + jsonEscape(error) + "\"}");
+    return;
+  }
+  sendJsonResponse(202, otaManagerStatusJson());
+}
+
 void handleApiConfigGet() {
   if (!authRequire()) return;
   String json;
@@ -795,6 +826,9 @@ void registerApiRoutes() {
   server.on("/api/wifi/test", HTTP_GET, handleApiWifiTestGet);
   server.on("/api/sms/send", HTTP_POST, handleApiSmsSend);
   server.on("/api/sms/send/status", HTTP_GET, handleApiSmsSendStatus);
+  server.on("/api/ota/status", HTTP_GET, handleApiOtaStatus);
+  server.on("/api/ota/check", HTTP_POST, handleApiOtaCheck);
+  server.on("/api/ota/install", HTTP_POST, handleApiOtaInstall);
   server.on("/sendsms", HTTP_POST, handleApiSmsSend);
   server.on("/api/reboot", handleApiReboot);
   server.on("/api/push/test", HTTP_POST, handleApiPushTest);

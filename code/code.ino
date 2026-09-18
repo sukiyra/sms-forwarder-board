@@ -12,6 +12,7 @@
 #include "operator_manager.h"
 #include "sim_manager.h"
 #include "factory_serial.h"
+#include "ota_manager.h"
 
 void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
@@ -30,6 +31,7 @@ void setup() {
   if (!smsStoreBegin()) {
     logCaptureLn(String("⚠️ 短信持久化存储初始化失败"));
   }
+  otaManagerBegin();
 
   // ---- HTTP 服务先行启动,保证任意 WiFi 状态下都可访问管理台 ----
   // WebServer 依赖 WiFi 协议栈的事件队列,必须先初始化 WiFi 再起服务
@@ -94,9 +96,23 @@ void setup() {
   esimManagerBegin();
   simManagerBegin();
   operatorManagerBegin();
+
+  // Confirm a newly installed image only after the complete application
+  // initialization path succeeds. A crash or watchdog reset before here
+  // leaves the image pending so the bootloader restores the previous slot.
+  otaManagerConfirmBoot();
 }
 
 void loop() {
+  otaManagerLoop();
+  if (otaManagerBusy()) {
+    // Version checks and downloads are exclusive maintenance operations.
+    // Requests are acknowledged before work starts, and the inactive OTA
+    // slot remains non-bootable until download and SHA-256 verification pass.
+    server.handleClient();
+    delay(1);
+    return;
+  }
   // Drain long COPS responses before serving HTTP so the UART ring cannot
   // overflow while a network scan is returning several kilobytes at once.
   operatorManagerLoop();

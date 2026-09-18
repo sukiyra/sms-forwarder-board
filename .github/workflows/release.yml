@@ -60,6 +60,14 @@ jobs:
             -o /tmp/sms_capability_test
           /tmp/sms_capability_test
 
+      - name: Test OTA policy
+        run: |
+          g++ -std=c++17 -Wall -Wextra -pedantic \
+            -I ./code \
+            ./code/ota_policy.cpp ./tests/ota_policy_test.cpp \
+            -o /tmp/ota_policy_test
+          /tmp/ota_policy_test
+
       - name: Validate embedded UI JavaScript
         run: |
           python - <<'PY'
@@ -77,7 +85,7 @@ jobs:
         run: |
           arduino-cli compile \
             --fqbn esp32:esp32:makergo_c3_supermini \
-            --board-options PartitionScheme=no_ota \
+            --build-property upload.maximum_size=2031616 \
             --output-dir ./fw \
             ./code
 
@@ -92,12 +100,15 @@ jobs:
           fi
           cd ./release/firmware
           zip -q -9 -r "../sms-forwarder-firmware-${RELEASE_TAG}.zip" .
+          cp ./code.ino.bin "../sms-forwarder-ota-${RELEASE_TAG}.bin"
 
       - name: Upload firmware release asset
         uses: actions/upload-artifact@v7
         with:
           name: release-firmware
-          path: ./release/sms-forwarder-firmware-*.zip
+          path: |
+            ./release/sms-forwarder-firmware-*.zip
+            ./release/sms-forwarder-ota-*.bin
 
   windows-tool:
     runs-on: windows-latest
@@ -161,9 +172,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" ./release-assets/*.zip --clobber --repo "$GITHUB_REPOSITORY"
+            gh release upload "$RELEASE_TAG" ./release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$RELEASE_TAG" ./release-assets/*.zip \
+            gh release create "$RELEASE_TAG" ./release-assets/* \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --title "SMS Forwarder Board ${RELEASE_TAG}" \

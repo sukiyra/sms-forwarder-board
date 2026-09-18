@@ -32,7 +32,7 @@ if (-not $ConfigFile) {
 New-Item -ItemType Directory -Force -Path $buildDir, $distDir | Out-Null
 $arguments = @(
   'compile', '--fqbn', 'esp32:esp32:makergo_c3_supermini',
-  '--board-options', 'PartitionScheme=no_ota',
+  '--build-property', 'upload.maximum_size=2031616',
   '--output-dir', $buildDir
 )
 if ($ConfigFile) { $arguments += @('--config-file', $ConfigFile) }

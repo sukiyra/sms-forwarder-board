@@ -432,11 +432,14 @@ def evaluate_status(status: dict[str, Any], require_sim: bool, require_network: 
     chip = status.get("chip") or {}
     modem = status.get("modem") or {}
     sim = status.get("sim") or {}
+    ota = status.get("ota") or {}
     if str(chip.get("model", "")).upper() != "ESP32-C3":
         failures.append("主控不是 ESP32-C3")
     family = str(modem.get("family", "")).upper()
     if not modem.get("supported") or family not in SUPPORTED_MODEMS:
         failures.append(f"模组未识别或不受支持：{family or 'unknown'}")
+    if ota and not ota.get("supported"):
+        failures.append("固件声明支持 OTA，但设备没有可用的备用应用分区")
     sim_ready = bool(sim.get("ready"))
     if require_sim:
         if not sim_ready:

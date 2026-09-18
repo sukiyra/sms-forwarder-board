@@ -72,7 +72,9 @@ def build_manifest(repo: Path, build: Path, output: Path) -> dict:
         "builtAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "chip": "esp32c3",
         "flashSize": "4MB",
-        "fqbn": "esp32:esp32:makergo_c3_supermini:PartitionScheme=no_ota",
+        "fqbn": "esp32:esp32:makergo_c3_supermini",
+        "partitionScheme": "dual_ota_4mb",
+        "otaCapable": True,
         "supportedModems": ["ML307A", "ML307C", "ML307R", "ML307Y"],
         "images": images,
     }

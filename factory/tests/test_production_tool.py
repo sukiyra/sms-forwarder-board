@@ -22,6 +22,7 @@ def ready_status(family="ML307Y"):
     return {
         "firmware": "sukiyra-test",
         "chip": {"model": "ESP32-C3", "id": "AABBCCDDEEFF"},
+        "ota": {"supported": True, "partitionSize": 2031616, "runningPartition": "app0"},
         "modem": {
             "supported": True,
             "family": family,
@@ -77,6 +78,14 @@ class ProductionToolTests(unittest.TestCase):
         status["sim"]["ready"] = False
         status["modem"]["registered"] = False
         self.assertEqual(evaluate_status(status, False, True), ["SIM 未就绪，无法验证蜂窝网络"])
+
+    def test_ota_partition_fault_is_rejected(self):
+        status = ready_status("ML307C")
+        status["ota"]["supported"] = False
+        self.assertEqual(
+            evaluate_status(status, False, False),
+            ["固件声明支持 OTA，但设备没有可用的备用应用分区"],
+        )
 
     def test_ml307c_telecom_sms_is_rejected(self):
         status = ready_status("ML307C")
