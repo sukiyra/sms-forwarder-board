@@ -60,6 +60,14 @@ jobs:
             -o /tmp/sms_capability_test
           /tmp/sms_capability_test
 
+      - name: Test SIM recovery policy
+        run: |
+          g++ -std=c++17 -Wall -Wextra -pedantic \
+            -I ./code \
+            ./code/sim_policy.cpp ./tests/sim_policy_test.cpp \
+            -o /tmp/sim_policy_test
+          /tmp/sim_policy_test
+
       - name: Test OTA policy
         run: |
           g++ -std=c++17 -Wall -Wextra -pedantic \

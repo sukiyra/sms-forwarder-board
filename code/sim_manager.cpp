@@ -5,6 +5,7 @@
 #include "modem.h"
 #include "operator_manager.h"
 #include "sms_process.h"
+#include "sim_policy.h"
 #include "web_handlers.h"
 
 namespace {
@@ -19,7 +20,6 @@ constexpr unsigned long SIGNAL_INTERVAL_MS = 10000UL;
 constexpr unsigned long SIGNAL_STALE_MS = 45000UL;
 constexpr size_t RESPONSE_CAPACITY = 640;
 constexpr uint8_t CONFIRMATION_COUNT = 2;
-constexpr uint8_t MAX_CONFIG_ATTEMPTS = 3;
 
 enum SimState {
   SIM_UNKNOWN,
@@ -94,6 +94,9 @@ int signalRsrpRaw = -1;
 int signalRsrqRaw = -1;
 unsigned long signalUpdatedAt = 0;
 unsigned long signalNextAt = 0;
+unsigned long simErrorStartedAt = 0;
+unsigned long configurationStartedAt = 0;
+String stateDetail;
 
 bool elapsed(unsigned long now, unsigned long deadline) {
   return static_cast<long>(now - deadline) >= 0;
@@ -114,12 +117,15 @@ const char* stateName(SimState value) {
 const char* stateMessage(SimState value) {
   switch (value) {
     case SIM_DETECTING:
-      return present ? "SIM 已识别，正在恢复短信服务" : "正在检测 SIM 卡";
+      return stateDetail.length()
+                 ? stateDetail.c_str()
+                 : (present ? "SIM 已识别，正在恢复短信服务" : "正在检测 SIM 卡");
     case SIM_ABSENT: return "未检测到 SIM 卡";
     case SIM_PIN_REQUIRED: return "SIM 卡需要 PIN 解锁";
     case SIM_PUK_REQUIRED: return "SIM 卡需要 PUK 解锁";
     case SIM_READY: return smsReady ? "SIM 已就绪" : "SIM 已识别，短信服务尚未就绪";
-    case SIM_ERROR: return "SIM 卡状态异常";
+    case SIM_ERROR:
+      return stateDetail.length() ? stateDetail.c_str() : "SIM 卡持续返回硬件错误";
     default: return "SIM 状态尚未确认";
   }
 }
@@ -184,9 +190,12 @@ Observation parseCpinObservation() {
   if (cme == 11) return OBS_PIN_REQUIRED;
   if (cme == 12) return OBS_PUK_REQUIRED;
   if (cme == 14 || cme == 512 || responseHas("SIM busy") || responseHas("SIM not ready")) {
+    stateDetail = "SIM / eUICC 正在初始化，设备会自动重试";
     return OBS_DETECTING;
   }
   if (cme == 13 || cme == 15 || responseHas("SIM failure") || responseHas("SIM wrong")) {
+    stateDetail = cme >= 0 ? "SIM / eUICC 暂时返回错误 " + String(cme) + "，正在等待恢复"
+                           : "SIM / eUICC 暂时返回错误，正在等待恢复";
     return OBS_ERROR;
   }
   // SIM busy/not ready and a missing terminal response are transient. They must
@@ -407,6 +416,7 @@ void commitObservation(Observation observation) {
       nextActionAt = millis() + DETECT_INTERVAL_RETRY_MS;
       break;
     case OBS_ABSENT:
+      stateDetail = "";
       needsConfigure = false;
       configAttempts = 0;
       if (state != SIM_ABSENT || present) invalidateCardCaches();
@@ -414,6 +424,7 @@ void commitObservation(Observation observation) {
       nextActionAt = millis() + DETECT_INTERVAL_RETRY_MS;
       break;
     case OBS_PIN_REQUIRED:
+      stateDetail = "";
       needsConfigure = false;
       configAttempts = 0;
       if (state != SIM_PIN_REQUIRED || !present) invalidateCardCaches();
@@ -421,6 +432,7 @@ void commitObservation(Observation observation) {
       nextActionAt = millis() + DETECT_INTERVAL_RETRY_MS;
       break;
     case OBS_PUK_REQUIRED:
+      stateDetail = "";
       needsConfigure = false;
       configAttempts = 0;
       if (state != SIM_PUK_REQUIRED || !present) invalidateCardCaches();
@@ -435,6 +447,8 @@ void commitObservation(Observation observation) {
       nextActionAt = millis() + DETECT_INTERVAL_RETRY_MS;
       break;
     case OBS_READY: {
+      simErrorStartedAt = 0;
+      stateDetail = "";
       bool newlyReady = state != SIM_READY || !present || !smsReady;
       if (newlyReady) {
         modemReady = false;
@@ -443,6 +457,7 @@ void commitObservation(Observation observation) {
         operatorManagerInvalidate();
         needsConfigure = true;
         configAttempts = 0;
+        configurationStartedAt = millis();
         publishState(SIM_DETECTING, true, true);
         nextActionAt = millis();
       } else {
@@ -457,6 +472,22 @@ void commitObservation(Observation observation) {
 }
 
 void observe(Observation observation) {
+  if (observation == OBS_ERROR) {
+    unsigned long now = millis();
+    if (!simErrorStartedAt) simErrorStartedAt = now;
+    if (!simpolicy::hardwareErrorIsPersistent(now - simErrorStartedAt)) {
+      candidate = OBS_UNKNOWN;
+      candidateCount = 0;
+      transportFailures = 0;
+      if (state != SIM_READY) publishState(SIM_DETECTING, true, true);
+      nextActionAt = now + DETECT_INTERVAL_RETRY_MS;
+      return;
+    }
+    stateDetail = "SIM / eUICC 连续 30 秒返回硬件错误，请检查卡片接触或重启模组";
+  } else if (observation == OBS_READY || observation == OBS_ABSENT ||
+             observation == OBS_PIN_REQUIRED || observation == OBS_PUK_REQUIRED) {
+    simErrorStartedAt = 0;
+  }
   bool verifyMl307yAbsent = observation == OBS_ABSENT &&
                            detectedModemModel.startsWith("ML307Y");
   if (observation != OBS_ABSENT) ml307yAbsentVerificationFailures = 0;
@@ -546,12 +577,34 @@ bool startWire(const char* command, WireStage stage, unsigned long timeout) {
   return true;
 }
 
-void scheduleConfigurationRetry() {
+const char* wireStageName(WireStage stage) {
+  switch (stage) {
+    case WIRE_CMEE: return "错误码设置";
+    case WIRE_CGACT: return "数据通道关闭";
+    case WIRE_ICCID: return "ICCID 读取";
+    case WIRE_ICCID_CRSM: return "ICCID 兼容读取";
+    case WIRE_CNUM: return "号码读取";
+    case WIRE_CIMI: return "归属网络读取";
+    case WIRE_CMGF: return "短信 PDU 模式";
+    case WIRE_CNMI:
+    case WIRE_CNMI_STORED: return "短信上报配置";
+    case WIRE_CEREG_ENABLE:
+    case WIRE_CEREG_QUERY: return "网络注册读取";
+    default: return "SIM 初始化";
+  }
+}
+
+void scheduleConfigurationRetry(WireStage failedStage) {
   smsReady = false;
   modemSetSmsDeliveryMode("unconfigured");
   needsConfigure = true;
   if (configAttempts < 255) ++configAttempts;
-  if (configAttempts >= MAX_CONFIG_ATTEMPTS) {
+  if (!configurationStartedAt) configurationStartedAt = millis();
+  stateDetail = String("SIM 已识别，正在重试") + wireStageName(failedStage) +
+                "（第 " + String(configAttempts) + " 次）";
+  if (simpolicy::configurationErrorIsPersistent(millis() - configurationStartedAt)) {
+    stateDetail = String("SIM 已识别，但") + wireStageName(failedStage) +
+                  "持续失败；设备仍会自动重试";
     publishState(SIM_ERROR, true, true);
   } else {
     publishState(SIM_DETECTING, true, true);
@@ -670,7 +723,7 @@ void handleWireResult(WireStage completed, bool ok) {
         nextActionAt = millis() + DETECT_INTERVAL_RETRY_MS;
       }
     } else {
-      scheduleConfigurationRetry();
+      scheduleConfigurationRetry(completed);
     }
     return;
   }
@@ -738,6 +791,8 @@ void handleWireResult(WireStage completed, bool ok) {
       smsReady = true;
       needsConfigure = false;
       configAttempts = 0;
+      configurationStartedAt = 0;
+      stateDetail = "";
       publishState(SIM_READY, true, true);
       smsScanStoredMessages("SM", 50);
       signalNextAt = millis();
@@ -788,7 +843,7 @@ void drainWire() {
       } else if (completed == WIRE_CMEE && !needsConfigure) {
         nextActionAt = millis() + DETECT_INTERVAL_RETRY_MS;
       } else {
-        scheduleConfigurationRetry();
+        scheduleConfigurationRetry(completed);
       }
       return;
     }
@@ -832,7 +887,7 @@ void drainWire() {
     } else if (completed == WIRE_CMEE && !needsConfigure) {
       nextActionAt = millis() + DETECT_INTERVAL_RETRY_MS;
     } else {
-      scheduleConfigurationRetry();
+      scheduleConfigurationRetry(completed);
     }
   }
 }
@@ -853,6 +908,9 @@ void simManagerBegin() {
   configAttempts = 0;
   transportFailures = 0;
   ml307yAbsentVerificationFailures = 0;
+  simErrorStartedAt = 0;
+  configurationStartedAt = 0;
+  stateDetail = "";
   modemReady = false;
   activeIccidTail = "";
   activePhoneNumber = "";
@@ -872,6 +930,9 @@ void simManagerInvalidate() {
   ml307yAbsentVerificationFailures = 0;
   needsConfigure = false;
   configAttempts = 0;
+  simErrorStartedAt = 0;
+  configurationStartedAt = 0;
+  stateDetail = "正在重新识别 SIM / eUICC";
   invalidateCardCaches();
   publishState(SIM_DETECTING, false, false);
   nextActionAt = millis();
@@ -888,6 +949,8 @@ void simManagerRestoreSmsConfiguration() {
   modemSetSmsDeliveryMode("unconfigured");
   needsConfigure = true;
   configAttempts = 0;
+  configurationStartedAt = millis();
+  stateDetail = "SIM 已识别，正在恢复短信服务";
   nextActionAt = millis();
   logCaptureLn("运营商操作结束，正在恢复短信 PDU 与上报配置");
 }

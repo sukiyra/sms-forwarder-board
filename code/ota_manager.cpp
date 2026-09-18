@@ -32,6 +32,9 @@ constexpr char RELEASE_ASSET_PREFIX[] =
 constexpr unsigned long QUEUE_DELAY_MS = 350;
 constexpr unsigned long METADATA_MAX_AGE_MS = 10UL * 60UL * 1000UL;
 constexpr unsigned long DOWNLOAD_IDLE_TIMEOUT_MS = 20000;
+constexpr size_t DOWNLOAD_BUFFER_SIZE = 4096;
+constexpr size_t DOWNLOAD_SLICE_BYTES = 16 * 1024;
+constexpr unsigned long DOWNLOAD_SLICE_MS = 12;
 
 enum OtaState {
   OTA_IDLE,
@@ -40,6 +43,7 @@ enum OtaState {
   OTA_UP_TO_DATE,
   OTA_AVAILABLE,
   OTA_INSTALL_QUEUED,
+  OTA_CONNECTING,
   OTA_DOWNLOADING,
   OTA_VERIFYING,
   OTA_REBOOTING,
@@ -53,6 +57,7 @@ struct OtaJob {
   String assetUrl;
   String digest;
   size_t assetSize = 0;
+  size_t bytesReceived = 0;
   size_t partitionSize = 0;
   unsigned int progress = 0;
   unsigned long queuedAt = 0;
@@ -63,6 +68,14 @@ struct OtaJob {
 };
 
 OtaJob job;
+NetworkClientSecure downloadClient;
+HTTPClient downloadHttp;
+NetworkClient *downloadStream = nullptr;
+uint8_t *downloadBuffer = nullptr;
+mbedtls_sha256_context downloadSha;
+bool downloadHttpOpen = false;
+bool downloadShaReady = false;
+unsigned long downloadLastDataAt = 0;
 
 const char *stateName(OtaState state) {
   switch (state) {
@@ -71,6 +84,7 @@ const char *stateName(OtaState state) {
     case OTA_UP_TO_DATE: return "up_to_date";
     case OTA_AVAILABLE: return "available";
     case OTA_INSTALL_QUEUED: return "install_queued";
+    case OTA_CONNECTING: return "connecting";
     case OTA_DOWNLOADING: return "downloading";
     case OTA_VERIFYING: return "verifying";
     case OTA_REBOOTING: return "rebooting";
@@ -82,13 +96,30 @@ const char *stateName(OtaState state) {
 bool busyState(OtaState state) {
   return state == OTA_CHECK_QUEUED || state == OTA_CHECKING ||
          state == OTA_INSTALL_QUEUED || state == OTA_DOWNLOADING ||
+         state == OTA_CONNECTING ||
          state == OTA_VERIFYING || state == OTA_REBOOTING;
 }
 
+void closeDownload(bool abortUpdate) {
+  if (abortUpdate) Update.abort();
+  if (downloadShaReady) {
+    mbedtls_sha256_free(&downloadSha);
+    downloadShaReady = false;
+  }
+  if (downloadBuffer) {
+    free(downloadBuffer);
+    downloadBuffer = nullptr;
+  }
+  if (downloadHttpOpen) {
+    downloadHttp.end();
+    downloadHttpOpen = false;
+  }
+  downloadStream = nullptr;
+}
+
 void fail(const String &message) {
-  Update.abort();
+  closeDownload(true);
   job.state = OTA_FAILED;
-  job.progress = 0;
   job.restartAt = 0;
   job.message = message;
   logCaptureLn("OTA 失败：" + message);
@@ -128,6 +159,7 @@ void checkLatestRelease() {
   job.assetUrl = "";
   job.digest = "";
   job.assetSize = 0;
+  job.bytesReceived = 0;
 
   if (!job.supported) {
     fail("当前分区表没有备用 OTA 槽，请先通过 USB 烧录 OTA 版本");
@@ -234,10 +266,12 @@ void checkLatestRelease() {
   job.message = "发现新版本 " + tag + "，可开始在线升级";
 }
 
-void installUpdate() {
-  job.state = OTA_DOWNLOADING;
-  job.progress = 1;
-  job.message = "正在下载固件，期间请勿断电";
+void beginInstall() {
+  closeDownload(false);
+  job.state = OTA_CONNECTING;
+  job.progress = 2;
+  job.bytesReceived = 0;
+  job.message = "正在连接固件服务器";
 
   if (!WiFi.isConnected()) {
     fail("WiFi 已断开，未写入新固件");
@@ -249,91 +283,95 @@ void installUpdate() {
     return;
   }
 
-  NetworkClientSecure client;
-  configureSecureClient(client);
-  HTTPClient http;
-  if (!http.begin(client, job.assetUrl)) {
+  configureSecureClient(downloadClient);
+  if (!downloadHttp.begin(downloadClient, job.assetUrl)) {
     fail("无法创建固件下载请求");
     return;
   }
-  configureHttp(http);
-  int code = http.GET();
+  downloadHttpOpen = true;
+  configureHttp(downloadHttp);
+  int code = downloadHttp.GET();
   if (code != HTTP_CODE_OK) {
-    String reason = code > 0 ? String("固件服务器返回 HTTP ") + code : http.errorToString(code);
-    http.end();
+    String reason = code > 0 ? String("固件服务器返回 HTTP ") + code
+                             : downloadHttp.errorToString(code);
     fail(reason);
     return;
   }
-  int declaredSize = http.getSize();
+  int declaredSize = downloadHttp.getSize();
   if (declaredSize > 0 && static_cast<size_t>(declaredSize) != job.assetSize) {
-    http.end();
     fail("下载大小与 GitHub 元数据不一致");
     return;
   }
   if (!Update.begin(job.assetSize, U_FLASH)) {
     String reason = String("无法打开备用 OTA 分区：") + Update.errorString();
-    http.end();
     fail(reason);
     return;
   }
 
-  constexpr size_t BUFFER_SIZE = 4096;
-  uint8_t *buffer = static_cast<uint8_t *>(malloc(BUFFER_SIZE));
-  if (!buffer) {
-    http.end();
+  downloadBuffer = static_cast<uint8_t *>(malloc(DOWNLOAD_BUFFER_SIZE));
+  if (!downloadBuffer) {
     fail("内存不足，OTA 已安全取消");
     return;
   }
-  mbedtls_sha256_context sha;
-  mbedtls_sha256_init(&sha);
-  if (mbedtls_sha256_starts(&sha, 0) != 0) {
-    free(buffer);
-    http.end();
-    mbedtls_sha256_free(&sha);
+  mbedtls_sha256_init(&downloadSha);
+  downloadShaReady = true;
+  if (mbedtls_sha256_starts(&downloadSha, 0) != 0) {
     fail("SHA-256 校验器初始化失败");
     return;
   }
 
-  NetworkClient *stream = http.getStreamPtr();
-  size_t received = 0;
-  unsigned long lastDataAt = millis();
-  bool writeOk = true;
-  while (received < job.assetSize) {
-    size_t available = stream->available();
-    if (available) {
-      size_t wanted = min(BUFFER_SIZE, min(available, job.assetSize - received));
-      int count = stream->readBytes(buffer, wanted);
-      if (count <= 0) continue;
-      if (Update.write(buffer, static_cast<size_t>(count)) != static_cast<size_t>(count) ||
-          mbedtls_sha256_update(&sha, buffer, static_cast<size_t>(count)) != 0) {
-        writeOk = false;
-        break;
-      }
-      received += static_cast<size_t>(count);
-      lastDataAt = millis();
-      job.progress = min(94U, static_cast<unsigned int>((received * 94ULL) / job.assetSize));
-    } else {
-      if (!http.connected() || millis() - lastDataAt > DOWNLOAD_IDLE_TIMEOUT_MS) {
-        writeOk = false;
-        break;
-      }
-      delay(1);
-    }
-  }
+  downloadStream = downloadHttp.getStreamPtr();
+  downloadLastDataAt = millis();
+  job.state = OTA_DOWNLOADING;
+  job.progress = 4;
+  job.message = "正在下载固件，期间请勿断电";
+}
 
-  uint8_t digestBytes[32] = {};
-  bool shaOk = mbedtls_sha256_finish(&sha, digestBytes) == 0;
-  mbedtls_sha256_free(&sha);
-  free(buffer);
-  http.end();
-  if (!writeOk || received != job.assetSize) {
-    fail("固件下载中断或 Flash 写入失败，新固件未启用");
+void continueInstall() {
+  if (!downloadStream || !downloadBuffer || !downloadShaReady) {
+    fail("OTA 下载上下文丢失，新固件未启用");
     return;
   }
+  const unsigned long sliceStartedAt = millis();
+  size_t sliceBytes = 0;
+  while (job.bytesReceived < job.assetSize && sliceBytes < DOWNLOAD_SLICE_BYTES &&
+         millis() - sliceStartedAt < DOWNLOAD_SLICE_MS) {
+    size_t available = downloadStream->available();
+    if (available) {
+      size_t wanted = min(DOWNLOAD_BUFFER_SIZE,
+                          min(available, job.assetSize - job.bytesReceived));
+      int count = downloadStream->read(downloadBuffer, wanted);
+      if (count <= 0) break;
+      size_t written = static_cast<size_t>(count);
+      if (Update.write(downloadBuffer, written) != written ||
+          mbedtls_sha256_update(&downloadSha, downloadBuffer, written) != 0) {
+        fail("Flash 写入失败，新固件未启用");
+        return;
+      }
+      job.bytesReceived += written;
+      sliceBytes += written;
+      downloadLastDataAt = millis();
+      job.progress = min(94U, 4U + static_cast<unsigned int>(
+          (job.bytesReceived * 90ULL) / job.assetSize));
+      job.message = "正在下载固件 " + String(job.bytesReceived / 1024) + " / " +
+                    String((job.assetSize + 1023) / 1024) + " KB";
+    } else {
+      if (!downloadHttp.connected() ||
+          millis() - downloadLastDataAt > DOWNLOAD_IDLE_TIMEOUT_MS) {
+        fail("固件下载中断，新固件未启用");
+        return;
+      }
+      break;
+    }
+  }
+  if (job.bytesReceived < job.assetSize) return;
 
+  uint8_t digestBytes[32] = {};
   job.state = OTA_VERIFYING;
   job.progress = 96;
   job.message = "正在校验固件 SHA-256";
+  bool shaOk = mbedtls_sha256_finish(&downloadSha, digestBytes) == 0;
+  closeDownload(false);
   String actual = sha256Hex(digestBytes);
   String expected = job.digest.substring(7);
   expected.toLowerCase();
@@ -406,6 +444,7 @@ bool otaManagerQueueCheck(String &error) {
   }
   job.state = OTA_CHECK_QUEUED;
   job.progress = 0;
+  job.bytesReceived = 0;
   job.message = "已提交版本检查";
   job.queuedAt = millis();
   job.restartAt = 0;
@@ -428,6 +467,7 @@ bool otaManagerQueueInstall(String &error) {
   }
   job.state = OTA_INSTALL_QUEUED;
   job.progress = 0;
+  job.bytesReceived = 0;
   job.message = "升级请求已接受，正在准备下载";
   job.queuedAt = millis();
   return true;
@@ -435,7 +475,7 @@ bool otaManagerQueueInstall(String &error) {
 
 String otaManagerStatusJson() {
   String json;
-  json.reserve(700);
+  json.reserve(820);
   json = "{\"ok\":true,\"currentVersion\":\"" FIRMWARE_VERSION "\",\"supported\":" +
          String(job.supported ? "true" : "false") + ",\"partitionSize\":" +
          String(job.partitionSize) + ",\"runningPartition\":\"" +
@@ -444,7 +484,8 @@ String otaManagerStatusJson() {
          ",\"state\":\"" + stateName(job.state) + "\",\"busy\":" +
          String(otaManagerBusy() ? "true" : "false") + ",\"progress\":" +
          String(job.progress) + ",\"latestVersion\":\"" + jsonEscape(job.latestVersion) +
-         "\",\"assetSize\":" + String(job.assetSize) + ",\"message\":\"" +
+         "\",\"assetSize\":" + String(job.assetSize) + ",\"bytesReceived\":" +
+         String(job.bytesReceived) + ",\"message\":\"" +
          jsonEscape(job.message) + "\"}";
   return json;
 }
@@ -458,6 +499,8 @@ void otaManagerLoop() {
   if (job.state == OTA_CHECK_QUEUED && millis() - job.queuedAt >= QUEUE_DELAY_MS) {
     checkLatestRelease();
   } else if (job.state == OTA_INSTALL_QUEUED && millis() - job.queuedAt >= QUEUE_DELAY_MS) {
-    installUpdate();
+    beginInstall();
+  } else if (job.state == OTA_DOWNLOADING) {
+    continueInstall();
   }
 }
