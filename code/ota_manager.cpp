@@ -33,6 +33,7 @@ constexpr unsigned long DOWNLOAD_IDLE_TIMEOUT_MS = 20000;
 constexpr size_t DOWNLOAD_BUFFER_SIZE = 4096;
 constexpr size_t DOWNLOAD_SLICE_BYTES = 16 * 1024;
 constexpr unsigned long DOWNLOAD_SLICE_MS = 12;
+constexpr size_t EXPECTED_OTA_PARTITION_SIZE = 0x1E0000;
 
 enum OtaState {
   OTA_IDLE,
@@ -430,6 +431,14 @@ size_t otaManagerPartitionSize() {
   return job.partitionSize;
 }
 
+size_t otaManagerExpectedPartitionSize() {
+  return EXPECTED_OTA_PARTITION_SIZE;
+}
+
+bool otaManagerPartitionLayoutCompatible() {
+  return job.supported && job.partitionSize == EXPECTED_OTA_PARTITION_SIZE;
+}
+
 String otaManagerRunningPartition() {
   const esp_partition_t *running = esp_ota_get_running_partition();
   return running && running->label ? String(running->label) : String("unknown");
@@ -473,10 +482,13 @@ bool otaManagerQueueInstall(String &error) {
 
 String otaManagerStatusJson() {
   String json;
-  json.reserve(820);
+  json.reserve(920);
   json = "{\"ok\":true,\"currentVersion\":\"" FIRMWARE_VERSION "\",\"supported\":" +
          String(job.supported ? "true" : "false") + ",\"partitionSize\":" +
-         String(job.partitionSize) + ",\"runningPartition\":\"" +
+         String(job.partitionSize) + ",\"expectedPartitionSize\":" +
+         String(EXPECTED_OTA_PARTITION_SIZE) + ",\"partitionLayoutCompatible\":" +
+         String(otaManagerPartitionLayoutCompatible() ? "true" : "false") +
+         ",\"runningPartition\":\"" +
          jsonEscape(otaManagerRunningPartition()) +
          "\",\"rollbackPending\":" + String(job.rollbackPending ? "true" : "false") +
          ",\"state\":\"" + stateName(job.state) + "\",\"busy\":" +

@@ -9,6 +9,8 @@ void otaManagerLoop();
 bool otaManagerBusy();
 bool otaManagerSupported();
 size_t otaManagerPartitionSize();
+size_t otaManagerExpectedPartitionSize();
+bool otaManagerPartitionLayoutCompatible();
 String otaManagerRunningPartition();
 String otaManagerStatusJson();
 bool otaManagerQueueCheck(String &error);

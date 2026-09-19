@@ -131,6 +131,8 @@ void handleApiStatus() {
   const bool storageReady = smsStoreIsReady();
   const size_t storageTotal = smsStoreStorageTotal();
   const size_t storageUsed = smsStoreStorageUsed();
+  const size_t otaPartitionSize = otaManagerPartitionSize();
+  const bool partitionLayoutCompatible = otaManagerPartitionLayoutCompatible();
   const healthpolicy::Snapshot healthSnapshot = {
       heapTotal, heapFree, heapMin, heapLargest, storageReady};
   const healthpolicy::Level healthLevel = healthpolicy::evaluate(healthSnapshot);
@@ -140,7 +142,7 @@ void handleApiStatus() {
       healthpolicy::fragmentationPercent(heapFree, heapLargest);
   const uint8_t storageUsedPercent = healthpolicy::usedPercent(storageUsed, storageTotal);
   String json;
-  json.reserve(2300);
+  json.reserve(2450);
   json = "{\"ok\":true,\"firmware\":\"" FIRMWARE_VERSION "\",\"uptime\":" + String(millis() / 1000) +
          ",\"heap\":" + String(heapFree) + ",\"epoch\":" + String(static_cast<unsigned long>(time(nullptr))) +
          ",\"wifi\":{\"connected\":" + String(WiFi.isConnected() ? "true" : "false") +
@@ -150,6 +152,11 @@ void handleApiStatus() {
          ",\"heapFree\":" + String(heapFree) + ",\"heapMin\":" + String(heapMin) +
          ",\"heapLargest\":" + String(heapLargest) + ",\"heapUsedPercent\":" +
          String(heapUsedPercent) + ",\"fragmentationPercent\":" + String(heapFragmentation) +
+         ",\"partitionLayoutCompatible\":" +
+         String(partitionLayoutCompatible ? "true" : "false") +
+         ",\"otaPartitionSize\":" + String(static_cast<unsigned long>(otaPartitionSize)) +
+         ",\"expectedOtaPartitionSize\":" +
+         String(static_cast<unsigned long>(otaManagerExpectedPartitionSize())) +
          ",\"storageReady\":" + String(storageReady ? "true" : "false") +
          ",\"storageTotal\":" + String(static_cast<unsigned long>(storageTotal)) +
          ",\"storageUsed\":" + String(static_cast<unsigned long>(storageUsed)) +

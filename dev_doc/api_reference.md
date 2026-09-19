@@ -327,6 +327,9 @@ WAIT_PDU 状态读取 PDU hex 数据 → `pdu.decodePDU()` 解析 → 根据 `co
     "heapLargest": 114676,
     "heapUsedPercent": 45,
     "fragmentationPercent": 28,
+    "partitionLayoutCompatible": true,
+    "otaPartitionSize": 1966080,
+    "expectedOtaPartitionSize": 1966080,
     "storageReady": true,
     "storageTotal": 131072,
     "storageUsed": 49152,
@@ -339,6 +342,8 @@ WAIT_PDU 状态读取 PDU hex 数据 → `pdu.decodePDU()` 解析 → 根据 `co
 `heapMin` 是本次启动以来的最低可用堆，`heapLargest` 是当前最大连续可分配块。
 `state` 由 `health_policy` 根据空闲余量、历史最低值、连续块、碎片率和 LittleFS
 状态统一计算，取值为 `healthy`、`warning` 或 `critical`。
+`partitionLayoutCompatible` 用备用应用分区的实际容量识别旧分区表。该值为
+`false` 时，OTA 只能更新应用，不能创建 LittleFS，必须使用 USB 完整烧录分区表。
 
 ## 模块: web_handlers.cpp — HTTP 处理
 

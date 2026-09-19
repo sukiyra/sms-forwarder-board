@@ -25,7 +25,7 @@
 #define SERIAL_BUFFER_SIZE 500
 #define MODEM_RX_BUFFER_SIZE 8192
 #define MAX_PDU_LENGTH 300
-#define FIRMWARE_VERSION "sukiyra-1.6.4"
+#define FIRMWARE_VERSION "sukiyra-1.6.5"
 
 // 全局变量声明
 extern Config config;
