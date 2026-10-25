@@ -515,6 +515,19 @@ void handleApiReboot() {
   ESP.restart();
 }
 
+void handleApiPushPreview() {
+  if (!authRequire()) return;
+  const auto context = notificationContext();
+  const String timestamp = String(static_cast<unsigned long>(time(nullptr)));
+  const char* sender = "+8613800138000";
+  const char* message = "这是一条通知样例。实际通知会显示收到的短信原文。";
+  const auto title = pushprotocol::notificationTitle(sender, context);
+  const auto body = pushprotocol::notificationText(sender, message, timestamp.c_str(), context);
+  sendJsonResponse(200, "{\"ok\":true,\"sample\":true,\"title\":\"" +
+      jsonEscape(String(title.c_str())) + "\",\"text\":\"" +
+      jsonEscape(String(body.c_str())) + "\"}");
+}
+
 void handleApiPushTest() {
   if (!authRequire()) return;
   if (WiFi.status() != WL_CONNECTED) {
@@ -523,6 +536,8 @@ void handleApiPushTest() {
   }
   String ch = server.arg("channel");
   String timestamp = String(time(nullptr));
+  const auto context = notificationContext(true, true);
+  const char* testMessage = "这是一条通知测试，用于核对接收号码、SIM 与设备信息。";
   if (ch == "email") {
     bool emailOk = config.smtpServer.length() > 0 && config.smtpUser.length() > 0 &&
                    config.smtpPass.length() > 0 && config.smtpSendTo.length() > 0;
@@ -530,8 +545,13 @@ void handleApiPushTest() {
       sendJsonResponse(400, "{\"ok\":false,\"message\":\"邮件通知未配置\"}");
       return;
     }
-    sendEmailNotification("推送测试", "这是一条来自设备的邮件通道测试");
-    sendJsonResponse(200, "{\"ok\":true,\"message\":\"测试邮件已发送，请查收\"}");
+    const auto subject = pushprotocol::notificationTitle("设备测试", context);
+    const auto body = pushprotocol::notificationText("设备测试", testMessage, timestamp.c_str(), context);
+    if (!sendEmailNotification(subject.c_str(), body.c_str())) {
+      sendJsonResponse(502, "{\"ok\":false,\"message\":\"配置已保存，但邮件发送失败，请检查 SMTP 地址、账号、授权码及网络\"}");
+      return;
+    }
+    sendJsonResponse(200, "{\"ok\":true,\"message\":\"邮件服务器已接收测试邮件，请查收\"}");
     return;
   }
   int idx = ch.toInt();
@@ -539,7 +559,10 @@ void handleApiPushTest() {
     sendJsonResponse(400, "{\"ok\":false,\"message\":\"通道未配置或编号无效\"}");
     return;
   }
-  sendToChannel(config.pushChannels[idx], "测试", "推送通道测试消息", timestamp.c_str());
+  if (!sendToChannel(config.pushChannels[idx], "设备测试", testMessage, timestamp.c_str(), context)) {
+    sendJsonResponse(502, "{\"ok\":false,\"message\":\"配置已保存，但通知请求失败，请检查地址、密钥或网络后重试\"}");
+    return;
+  }
   sendJsonResponse(200, "{\"ok\":true,\"message\":\"已向通道 " + String(idx + 1) + " 发送测试，请查收\"}");
 }
 
@@ -799,6 +822,12 @@ void handleApiConfigPost() {
                           server.hasArg(p + "k1") || server.hasArg(p + "k2") ||
                           server.hasArg(p + "body");
     if (!channelPresent) continue;
+    // New UI submits a complete snapshot, including intentional empty values.
+    // Clear the destination slot before applying it so removal/reordering cannot
+    // retain another channel's URL or token. Older partial clients keep semantics.
+    if (pushCount >= 0 && server.arg("pushReplace") == "1") {
+      config.pushChannels[i] = PushChannel();
+    }
     config.pushChannels[i].enabled = server.hasArg(p + "en");
     if (server.hasArg(p + "type")) config.pushChannels[i].type = static_cast<PushType>(constrain(server.arg(p + "type").toInt(), 0, 11));
     if (server.hasArg(p + "name")) config.pushChannels[i].name = server.arg(p + "name").substring(0, 48);
@@ -887,6 +916,7 @@ void registerApiRoutes() {
   server.on("/sendsms", HTTP_POST, handleApiSmsSend);
   server.on("/api/reboot", handleApiReboot);
   server.on("/api/push/test", HTTP_POST, handleApiPushTest);
+  server.on("/api/push/preview", HTTP_GET, handleApiPushPreview);
   server.on("/api/factory/reset", handleApiFactoryReset);
   server.on("/api/brand", HTTP_GET, handleApiBrand);
 }

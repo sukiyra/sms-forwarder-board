@@ -305,10 +305,11 @@ bool processSmsContent(const char* sender, const char* text, const char* timesta
               static_cast<unsigned>(smsText.length()), complete ? "" : "，分段不完整");
 
   // 发送通知http（推送到所有启用的通道）
-  sendSMSToServer(sender, text, timestamp);
+  const auto context = notificationContext(complete);
+  sendSMSToServer(sender, text, timestamp, context);
   // 发送通知邮件
-  String subject = ""; subject+="短信";subject+=sender;subject+=",";subject+=text;
-  String body = ""; body+="来自：";body+=sender;body+="，时间：";body+=notificationDisplayTime(timestamp);body+="，内容：";body+=text;
+  String subject = pushprotocol::notificationTitle(sender, context).c_str();
+  String body = pushprotocol::notificationText(sender, text, timestamp, context).c_str();
   sendEmailNotification(subject.c_str(), body.c_str());
   return true;
 }

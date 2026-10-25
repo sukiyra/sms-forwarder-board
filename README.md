@@ -88,6 +88,38 @@ arduino-cli compile `
 
 仓库内的 `code/partitions.csv` 定义 4 MB Flash 双应用分区：`app0` 与 `app1` 各 1,920 KB，并保留 NVS、OTA 状态、128 KB LittleFS 短信存储和 64 KB 崩溃转储分区。不要用 Arduino 菜单中的单应用分区覆盖它。
 
+## 短信通知内容
+
+v1.6.6 起，企业微信、Bark、钉钉、飞书、PushPlus、Server酱、Gotify、Telegram 和邮件共用完整的接收信息。通知会带上发送方、接收卡内号码、SIM / Profile、运营商与 PLMN、ICCID 尾号、设备名称与 ID、模组型号和北京时间；分段不完整时也会注明。号码读取失败会显示“SIM 未提供”，不会用管理员号码代替。
+
+```text
+短信转发 · 收到新短信
+发送者：+8613800138000
+接收号码：+8613900139000（卡内号码，未验证）
+接收卡：WEBBING · eSIM / eUICC
+运营商：中国联通 [46001]
+ICCID：尾号 7707
+设备：SMS FWD · ML307A · DEMO00000001
+时间：2026-10-25 14:20:02（北京时间）
+
+内容：
+收到的短信原文
+```
+
+卡内号码来自 `AT+CNUM`，可能为空、过期或与实际业务号码不符，请以发卡方资料为准。通知页可查看当前设备的格式样例，配置回显默认隐藏密钥；“保存并测试”会先保存当前表单，再向目标通道发送测试消息。
+
+标准 POST JSON 保留原有 `sender`、`message`、`timestamp` 字段，并添加接收卡与设备信息；GET 同样保留原参数并添加元数据。自定义 JSON 模板支持以下字符串变量，替换时自动进行 JSON 转义：
+
+| 变量 | 内容 |
+| --- | --- |
+| `{sender}` / `{message}` / `{timestamp}` | 发送方、原始正文、原始时间 |
+| `{receiver}` / `{profile}` / `{sim_type}` | 卡内号码、接收 Profile、卡类型 |
+| `{carrier}` / `{plmn}` / `{iccid_tail}` | 运营商、驻网编号、ICCID 尾号 |
+| `{device}` / `{device_id}` / `{model}` | 设备名称、设备 ID、模组 |
+| `{display_time}` / `{notification}` | 北京时间、完整通知正文 |
+
+例如 `{"text":"{notification}"}`。短信原文中恰好包含的变量文本会原样保留，不会被再次替换。企业微信仍按 UTF-8 字节拆分长消息，每段都会附上接收信息并遵守 2048 字节上限。
+
 ## 在线 OTA
 
 在“系统设置 → 在线固件升级”中检查并安装正式版。设备只接受本仓库最新 GitHub Release 中名称为 `sms-forwarder-ota-vX.Y.Z.bin` 的资产，并验证以下条件：

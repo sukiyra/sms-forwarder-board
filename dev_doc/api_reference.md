@@ -347,6 +347,28 @@ WAIT_PDU 状态读取 PDU hex 数据 → `pdu.decodePDU()` 解析 → 根据 `co
 
 ## 模块: web_handlers.cpp — HTTP 处理
 
+### `GET /api/push/preview`
+
+需要管理员会话或 API 令牌。使用缓存的 SIM 与设备状态构建样例，返回
+`{"ok":true,"sample":true,"title":"...","text":"..."}`，不会发送通知或执行 AT 指令。
+发送方与正文使用样例值，其余字段与真实通知使用同一个 `NotificationContext` 格式化。
+
+### 通知 Webhook 的接收信息
+
+POST JSON 保留 `sender`、`message`、`timestamp`，添加 `receiver`、
+`receiverVerified`（固定为 `false`，AT+CNUM 未经业务号码验证）、`profile`、
+`simType`、`carrier`、`plmn`、`iccidTail`、`device`、`deviceId`、`model`、
+`displayTime`、`complete` 和 `test`。未读取的字符串字段为空。时间原值继续
+用于机器处理，`displayTime` 用于北京时间展示。GET 会附加同名接收卡与设备字符串参数。
+
+完整通道编辑表单使用 `pushCount` 加 `pushReplace=1` 提交快照，空字段会清除
+对应值；未携带 `pushReplace` 的旧客户端继续使用部分字段更新语义。删除中间
+通道后，界面会将字段名与密钥一起重新编号，防止遗留另一个通道的配置。
+
+`POST /api/push/test` 在 SMTP 连接/认证/发送失败、HTTP 请求失败或企业微信拒收时返回
+502，而不是报告发送成功。通知响应体的最大读取量为 4096 字节；自定义 JSON
+模板展开的最大长度为 16 KB，超限会停止发送并记录日志。
+
 ### 日志系统 API
 
 ### `void logCapture(const String& msg)`

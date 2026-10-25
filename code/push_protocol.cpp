@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <utility>
 
 namespace pushprotocol {
 
@@ -40,6 +41,23 @@ std::string encodeUrl(const std::string& text) {
       result += '%';
       result += hex[c >> 4];
       result += hex[c & 15];
+    }
+  }
+  return result;
+}
+
+std::string escapeHtml(const std::string& text) {
+  std::string result;
+  result.reserve(text.size());
+  for (char c : text) {
+    switch (c) {
+      case '&': result += "&amp;"; break;
+      case '<': result += "&lt;"; break;
+      case '>': result += "&gt;"; break;
+      case '"': result += "&quot;"; break;
+      case '\'': result += "&#39;"; break;
+      case '\n': result += "<br>"; break;
+      default: result += c;
     }
   }
   return result;
@@ -145,19 +163,132 @@ bool isWecomWebhook(const std::string& url) {
          url.find_first_of(" \r\n\t#") == std::string::npos;
 }
 
+std::string notificationHeading(const std::string& sender,
+                                const std::string& timestamp,
+                                const NotificationContext& context) {
+  std::string heading = context.test ? "短信转发 · 测试通知\n" : "短信转发 · 收到新短信\n";
+  heading += "发送者：" + (sender.empty() ? std::string("未知发送方") : sender) + "\n";
+  heading += "接收号码：" + (context.receiver.empty() ? std::string("SIM 未提供")
+                                                          : context.receiver + "（卡内号码，未验证）") + "\n";
+  if (!context.profile.empty() || !context.simType.empty()) {
+    heading += "接收卡：" + context.profile;
+    if (!context.profile.empty() && !context.simType.empty()) heading += " · ";
+    heading += context.simType + "\n";
+  }
+  if (!context.carrier.empty() || !context.plmn.empty()) {
+    heading += "运营商：" + context.carrier;
+    if (!context.plmn.empty()) heading += " [" + context.plmn + "]";
+    heading += "\n";
+  }
+  if (!context.iccidTail.empty()) heading += "ICCID：尾号 " + context.iccidTail + "\n";
+  if (!context.device.empty() || !context.model.empty() || !context.deviceId.empty()) {
+    heading += "设备：" + context.device;
+    if (!context.model.empty()) heading += " · " + context.model;
+    if (!context.deviceId.empty()) heading += " · " + context.deviceId;
+    heading += "\n";
+  }
+  const std::string displayTime = displayTimestampChina(timestamp);
+  heading += "时间：" + (displayTime.empty() ? std::string("时间未知") : displayTime) + "\n";
+  if (!context.complete) heading += "接收状态：分段不完整，请核对正文\n";
+  return heading;
+}
+
+std::string notificationText(const std::string& sender, const std::string& message,
+                             const std::string& timestamp,
+                             const NotificationContext& context) {
+  return notificationHeading(sender, timestamp, context) + "\n内容：\n" + message;
+}
+
+std::string notificationTitle(const std::string& sender,
+                              const NotificationContext& context) {
+  // Keep SMS text out of email headers and strip control characters from labels.
+  std::string title = context.test ? "短信转发测试" : "短信来自 " + sender;
+  const std::string target = context.receiver.empty() ? context.profile : context.receiver;
+  if (!target.empty()) title += " → " + target;
+  title.erase(std::remove_if(title.begin(), title.end(), [](unsigned char c) {
+    return c < 0x20 || c == 0x7f;
+  }), title.end());
+  auto chunks = splitUtf8(title, 160);
+  return chunks.empty() ? std::string("短信通知") : chunks.front();
+}
+
+std::string webhookJson(const std::string& sender, const std::string& message,
+                        const std::string& timestamp,
+                        const NotificationContext& context) {
+  JsonDocument doc;
+  doc["sender"] = sender;
+  doc["message"] = message;
+  doc["timestamp"] = timestamp;
+  doc["receiver"] = context.receiver;
+  doc["receiverVerified"] = false;
+  doc["profile"] = context.profile;
+  doc["simType"] = context.simType;
+  doc["carrier"] = context.carrier;
+  doc["plmn"] = context.plmn;
+  doc["iccidTail"] = context.iccidTail;
+  doc["device"] = context.device;
+  doc["deviceId"] = context.deviceId;
+  doc["model"] = context.model;
+  doc["displayTime"] = displayTimestampChina(timestamp);
+  doc["complete"] = context.complete;
+  doc["test"] = context.test;
+  std::string json;
+  serializeJson(doc, json);
+  return json;
+}
+
+std::string renderJsonTemplate(const std::string& body, const std::string& sender,
+                               const std::string& message,
+                               const std::string& timestamp,
+                               const NotificationContext& context) {
+  // Scan the original template only; placeholder-looking SMS text remains literal.
+  const std::pair<const char*, std::string> fields[] = {
+      {"sender", sender}, {"message", message}, {"timestamp", timestamp},
+      {"receiver", context.receiver}, {"profile", context.profile},
+      {"sim_type", context.simType}, {"carrier", context.carrier},
+      {"plmn", context.plmn}, {"iccid_tail", context.iccidTail},
+      {"device", context.device}, {"device_id", context.deviceId},
+      {"model", context.model}, {"display_time", displayTimestampChina(timestamp)},
+      {"notification", notificationText(sender, message, timestamp, context)}};
+  constexpr size_t maxExpandedBytes = 16 * 1024;
+  std::string result;
+  result.reserve(std::min(body.size() + message.size(), maxExpandedBytes));
+  for (size_t i = 0; i < body.size();) {
+    bool replaced = false;
+    if (body[i] == '{') {
+      for (const auto& field : fields) {
+        const std::string marker = std::string("{") + field.first + "}";
+        if (body.compare(i, marker.size(), marker) == 0) {
+          const std::string escaped = escapeJson(field.second);
+          if (escaped.size() > maxExpandedBytes - result.size()) return "";
+          result += escaped;
+          i += marker.size();
+          replaced = true;
+          break;
+        }
+      }
+    }
+    if (!replaced) {
+      if (result.size() == maxExpandedBytes) return "";
+      result += body[i++];
+    }
+  }
+  return result;
+}
+
 std::vector<std::string> wecomPayloads(const std::string& sender,
                                      const std::string& message,
-                                     const std::string& timestamp) {
-  const std::string heading = "短信通知\n发送者：" + sender + "\n时间：" +
-                              displayTimestampChina(timestamp) + "\n";
-  if (heading.size() > 512) return {};
+                                     const std::string& timestamp,
+                                     const NotificationContext& context) {
+  const std::string heading = notificationHeading(sender, timestamp, context);
+  if (heading.size() > 1280) return {};
   // Leave room for part numbering. WeCom's text.content limit is in UTF-8 bytes.
   auto chunks = splitUtf8(message, 2048 - heading.size() - 48);
   std::vector<std::string> payloads;
   for (size_t i = 0; i < chunks.size(); ++i) {
     std::string content = heading;
     if (chunks.size() > 1) content += "分段 " + std::to_string(i + 1) + "/" + std::to_string(chunks.size()) + "\n";
-    content += "内容：" + chunks[i];
+    content += "内容：\n" + chunks[i];
     payloads.push_back("{\"msgtype\":\"text\",\"text\":{\"content\":\"" + escapeJson(content) + "\"}}");
   }
   return payloads;

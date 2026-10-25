@@ -49,14 +49,62 @@ int main() {
     assert(content.size() <= 2048);
     assert(content.find("2026-09-06 20:20:02（北京时间）") != std::string::npos);
     assert(content.find("分段 " + std::to_string(i + 1) + "/" + std::to_string(parts.size())) != std::string::npos);
-    const auto marker = content.find("内容：");
+    const auto marker = content.find("内容：\n");
     assert(marker != std::string::npos);
-    reconstructed += content.substr(marker + std::string("内容：").size());
+    reconstructed += content.substr(marker + std::string("内容：\n").size());
   }
   assert(reconstructed == longText);
   assert(!deserializeJson(doc, wecomPayloads("sender", special, "time").front()));
   assert(doc["text"]["content"].as<std::string>().find(special) != std::string::npos);
   assert(wecomPayloads("sender", "", "time").size() == 1);
+
+  NotificationContext context;
+  context.receiver = "+8613800138000";
+  context.profile = "WEBBING";
+  context.simType = "eSIM / eUICC";
+  context.carrier = "中国联通";
+  context.plmn = "46001";
+  context.iccidTail = "7707";
+  context.device = "短信网关";
+  context.deviceId = "D869B7E05380";
+  context.model = "ML307A";
+  context.complete = false;
+  const auto notification = notificationText("+8619503806511", special, "2026-09-06T12:20:02Z", context);
+  for (const auto& field : {context.receiver, context.profile, context.carrier, context.plmn,
+                            context.iccidTail, context.device, context.deviceId, context.model}) {
+    assert(notification.find(field) != std::string::npos);
+  }
+  assert(notification.find("未验证") != std::string::npos);
+  assert(notification.find("分段不完整") != std::string::npos);
+  assert(notification.find(special) != std::string::npos);
+  assert(notificationText("s", "m", "", {}).find("SIM 未提供") != std::string::npos);
+  assert(!deserializeJson(doc, webhookJson("sender", special, "raw-time", context)));
+  assert(doc["sender"] == "sender" && doc["message"].as<std::string>() == special);
+  assert(doc["timestamp"] == "raw-time" && doc["receiver"] == context.receiver);
+  assert(doc["receiverVerified"] == false && doc["complete"] == false);
+  assert(escapeHtml("<b>\"&'\n") == "&lt;b&gt;&quot;&amp;&#39;<br>");
+  assert(!deserializeJson(doc, renderJsonTemplate(
+      R"({"text":"{notification}","body":"{message}","to":"{receiver}","unknown":"{unknown}"})",
+      "sender", "literal {receiver} \"quotes\"\n", "raw-time", context)));
+  assert(doc["body"] == "literal {receiver} \"quotes\"\n");
+  assert(doc["to"] == context.receiver && doc["unknown"] == "{unknown}");
+  assert(renderJsonTemplate("{message}{message}{message}", "s", std::string(6000, 'x'), "t", context).empty());
+  assert(notificationTitle("bad\r\nheader", context).find('\n') == std::string::npos);
+  context.test = true;
+  assert(notificationText("sender", "m", "t", context).find("测试通知") != std::string::npos);
+  reconstructed.clear();
+  auto enrichedParts = wecomPayloads("sender", longText, "time", context);
+  assert(enrichedParts.size() > 1);
+  for (const auto& payload : enrichedParts) {
+    assert(!deserializeJson(doc, payload));
+    const auto content = doc["text"]["content"].as<std::string>();
+    assert(content.size() <= 2048);
+    assert(content.find(context.receiver) != std::string::npos);
+    const auto marker = content.find("内容：\n");
+    assert(marker != std::string::npos);
+    reconstructed += content.substr(marker + std::string("内容：\n").size());
+  }
+  assert(reconstructed == longText);
 
   assert(evaluateResponse(200, R"({"errcode":0,"errmsg":"ok"})", true).ok);
   const auto rejected = evaluateResponse(200, R"({"errcode":40008,"errmsg":"invalid message type"})", true);
@@ -87,5 +135,5 @@ int main() {
   assert(schedule.ready(now + 40000U));
   assert(!schedule.retry(now + 40000U));
 
-  std::cout << "PASS: timestamp display, JSON escaping, UTF-8 segmentation, payload limits, webhook validation, API errors and retries\n";
+  std::cout << "PASS: notification metadata, templates, HTML/JSON escaping, timestamps, UTF-8 payload limits, API errors and retries\n";
 }

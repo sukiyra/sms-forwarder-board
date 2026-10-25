@@ -1,19 +1,48 @@
 #include "push.h"
 #include "web_handlers.h"
 #include "config.h"
-#include "web_handlers.h"
+#include "esim_manager.h"
+#include "sim_manager.h"
+#include "operator_manager.h"
 #include "push_protocol.h"
 #include <HTTPClient.h>
 #include <mbedtls/md.h>
 #include <base64.h>
 #include <sys/time.h>
 
+namespace {
+// HTTPClient handles chunked transfer decoding through writeToStream. Stop at a
+// fixed response limit, including when Content-Length is unknown.
+class BoundedPushResponse : public Stream {
+ public:
+  size_t write(uint8_t byte) override { return write(&byte, 1); }
+  size_t write(const uint8_t* data, size_t length) override {
+    const size_t room = 4096 - value.length();
+    const size_t accepted = length < room ? length : room;
+    if (accepted && !value.concat(reinterpret_cast<const char*>(data), accepted)) return 0;
+    return accepted;
+  }
+  int available() override { return 0; }
+  int read() override { return -1; }
+  int peek() override { return -1; }
+  void flush() override {}
+  String value;
+};
+
+String pushResponse(HTTPClient& http) {
+  if (http.getSize() > 4096) return "";
+  BoundedPushResponse response;
+  if (http.writeToStream(&response) < 0) return "";
+  return response.value;
+}
+}  // namespace
+
 // 发送邮件通知函数
-void sendEmailNotification(const char* subject, const char* body) {
+bool sendEmailNotification(const char* subject, const char* body) {
   if (config.smtpServer.length() == 0 || config.smtpUser.length() == 0 ||
       config.smtpPass.length() == 0 || config.smtpSendTo.length() == 0) {
     logCaptureLn(String("邮件配置不完整，跳过发送"));
-    return;
+    return false;
   }
 
   auto statusCallback = [](SMTPStatus status) {
@@ -21,7 +50,10 @@ void sendEmailNotification(const char* subject, const char* body) {
   };
   smtp.connect(config.smtpServer.c_str(), config.smtpPort, statusCallback);
   if (smtp.isConnected()) {
-    smtp.authenticate(config.smtpUser.c_str(), config.smtpPass.c_str(), readymail_auth_password);
+    if (!smtp.authenticate(config.smtpUser.c_str(), config.smtpPass.c_str(), readymail_auth_password)) {
+      logCaptureLn("邮件认证失败");
+      return false;
+    }
 
     SMTPMessage msg;
     String from = "sms notify <"; from += config.smtpUser; from += ">";
@@ -31,37 +63,18 @@ void sendEmailNotification(const char* subject, const char* body) {
     msg.headers.add(rfc822_subject, subject);
     msg.text.body(body);
     msg.timestamp = time(nullptr);
-    smtp.send(msg);
-    logCaptureLn(String("邮件发送完成"));
+    const bool sent = smtp.send(msg);
+    logCaptureLn(sent ? "邮件服务器已接收" : "邮件发送失败");
+    return sent;
   } else {
     logCaptureLn(String("邮件服务器连接失败"));
+    return false;
   }
 }
 
 // URL编码辅助函数
 String urlEncode(const String& str) {
-  String encoded = "";
-  char c;
-  char code0;
-  char code1;
-  for (unsigned int i = 0; i < str.length(); i++) {
-    c = str.charAt(i);
-    if (c == ' ') {
-      encoded += '+';
-    } else if (isalnum(c)) {
-      encoded += c;
-    } else {
-      code1 = (c & 0xf) + '0';
-      if ((c & 0xf) > 9) code1 = (c & 0xf) - 10 + 'A';
-      c = (c >> 4) & 0xf;
-      code0 = c + '0';
-      if (c > 9) code0 = c - 10 + 'A';
-      encoded += '%';
-      encoded += code0;
-      encoded += code1;
-    }
-  }
-  return encoded;
+  return String(pushprotocol::encodeUrl(str.c_str()).c_str());
 }
 
 // 钉钉签名函数（时间戳为UTC毫秒级）
@@ -93,55 +106,65 @@ int64_t getUtcMillis() {
 
 // JSON转义函数
 String jsonEscape(const String& str) {
-  String result = "";
-  for (unsigned int i = 0; i < str.length(); i++) {
-    char c = str.charAt(i);
-    if (c == '"') result += "\\\"";
-    else if (c == '\\') result += "\\\\";
-    else if (c == '\n') result += "\\n";
-    else if (c == '\r') result += "\\r";
-    else if (c == '\t') result += "\\t";
-    else result += c;
-  }
-  return result;
+  return String(pushprotocol::escapeJson(str.c_str()).c_str());
 }
 
 String notificationDisplayTime(const char* timestamp) {
   return String(pushprotocol::displayTimestampChina(timestamp ? timestamp : "").c_str());
 }
 
+pushprotocol::NotificationContext notificationContext(bool complete, bool test) {
+  pushprotocol::NotificationContext context;
+  // All modem values are cached. Notification formatting never issues AT commands.
+  if (simManagerIsPresent()) {
+    context.receiver = simManagerPhoneNumber().c_str();
+    context.profile = esimActiveProfileLabel().c_str();
+    context.simType = esimCapabilityKnown()
+        ? (esimIsSupported() ? "eSIM / eUICC" : "实体 SIM") : "SIM";
+    context.carrier = operatorCurrentLabel().c_str();
+    context.plmn = operatorCurrentNumeric().c_str();
+    context.iccidTail = simManagerIccidTail().c_str();
+  }
+  context.device = config.brandTitle.c_str();
+  char id[13];
+  snprintf(id, sizeof(id), "%012llX", static_cast<unsigned long long>(ESP.getEfuseMac()));
+  context.deviceId = id;
+  context.model = detectedModemModel.c_str();
+  context.complete = complete;
+  context.test = test;
+  return context;
+}
+
 // 发送单个推送通道
-void sendToChannel(const PushChannel& channel, const char* sender, const char* message, const char* timestamp) {
-  if (!channel.enabled) return;
+bool sendToChannel(const PushChannel& channel, const char* sender, const char* message,
+                   const char* timestamp, const pushprotocol::NotificationContext& context) {
+  if (!channel.enabled) return false;
 
   // 对于某些推送方式，URL可以为空（使用默认URL）
   bool needUrl = (channel.type == PUSH_TYPE_POST_JSON || channel.type == PUSH_TYPE_BARK ||
                   channel.type == PUSH_TYPE_GET || channel.type == PUSH_TYPE_DINGTALK ||
                   channel.type == PUSH_TYPE_CUSTOM || channel.type == PUSH_TYPE_WECOM);
-  if (needUrl && channel.url.length() == 0) return;
+  if (needUrl && channel.url.length() == 0) return false;
 
   HTTPClient http;
+  http.setConnectTimeout(5000);
+  http.setTimeout(5000);
+  http.setReuse(false);
   String channelName = channel.name.length() > 0 ? channel.name : ("通道" + String(channel.type));
   logCaptureLn(String("发送到推送通道: " + channelName));
 
   int httpCode = 0;
-  String senderEscaped = jsonEscape(String(sender));
-  String messageEscaped = jsonEscape(String(message));
-  String timestampEscaped = jsonEscape(String(timestamp));
-  String displayTimestamp = notificationDisplayTime(timestamp);
-  String displayTimestampEscaped = jsonEscape(displayTimestamp);
+  const String title = pushprotocol::notificationTitle(sender, context).c_str();
+  const String text = pushprotocol::notificationText(sender, message, timestamp, context).c_str();
+  const String titleEscaped = jsonEscape(title);
+  const String textEscaped = jsonEscape(text);
 
   switch (channel.type) {
     case PUSH_TYPE_POST_JSON: {
       // 标准POST JSON格式
       http.begin(channel.url);
       http.addHeader("Content-Type", "application/json");
-      String jsonData = "{";
-      jsonData += "\"sender\":\"" + senderEscaped + "\",";
-      jsonData += "\"message\":\"" + messageEscaped + "\",";
-      jsonData += "\"timestamp\":\"" + timestampEscaped + "\"";
-      jsonData += "}";
-      logCaptureLn(String("POST JSON: " + jsonData));
+      String jsonData = pushprotocol::webhookJson(sender, message, timestamp, context).c_str();
       httpCode = http.POST(jsonData);
       break;
     }
@@ -151,10 +174,9 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       http.begin(channel.url);
       http.addHeader("Content-Type", "application/json");
       String jsonData = "{";
-      jsonData += "\"title\":\"" + senderEscaped + "\",";
-      jsonData += "\"body\":\"" + messageEscaped + "\"";
+      jsonData += "\"title\":\"" + titleEscaped + "\",";
+      jsonData += "\"body\":\"" + textEscaped + "\"";
       jsonData += "}";
-      logCaptureLn(String("BARK JSON: " + jsonData));
       httpCode = http.POST(jsonData);
       break;
     }
@@ -170,7 +192,15 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       getUrl += "sender=" + urlEncode(String(sender));
       getUrl += "&message=" + urlEncode(String(message));
       getUrl += "&timestamp=" + urlEncode(String(timestamp));
-      logCaptureLn(String("GET URL: " + getUrl));
+      getUrl += "&receiver=" + urlEncode(String(context.receiver.c_str()));
+      getUrl += "&profile=" + urlEncode(String(context.profile.c_str()));
+      getUrl += "&carrier=" + urlEncode(String(context.carrier.c_str()));
+      getUrl += "&plmn=" + urlEncode(String(context.plmn.c_str()));
+      getUrl += "&simType=" + urlEncode(String(context.simType.c_str()));
+      getUrl += "&iccidTail=" + urlEncode(String(context.iccidTail.c_str()));
+      getUrl += "&device=" + urlEncode(String(context.device.c_str()));
+      getUrl += "&deviceId=" + urlEncode(String(context.deviceId.c_str()));
+      getUrl += "&model=" + urlEncode(String(context.model.c_str()));
       http.begin(getUrl);
       httpCode = http.GET();
       break;
@@ -199,9 +229,8 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       http.begin(webhookUrl);
       http.addHeader("Content-Type", "application/json");
       String jsonData = "{\"msgtype\":\"text\",\"text\":{\"content\":\"";
-      jsonData += "📱短信通知\\n发送者: " + senderEscaped + "\\n内容: " + messageEscaped + "\\n时间: " + displayTimestampEscaped;
+      jsonData += textEscaped;
       jsonData += "\"}}";
-      logCaptureLn(String("钉钉: " + jsonData));
       httpCode = http.POST(jsonData);
       break;
     }
@@ -222,12 +251,11 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
           }
       }
       String jsonData = "{";
-      jsonData += "\"token\":\"" + channel.key1 + "\",";
-      jsonData += "\"title\":\"短信来自: " + senderEscaped + "\",";
-      jsonData += "\"content\":\"<b>发送者:</b> " + senderEscaped + "<br><b>时间:</b> " + displayTimestampEscaped + "<br><b>内容:</b><br>" + messageEscaped + "\",";
+      jsonData += "\"token\":\"" + jsonEscape(channel.key1) + "\",";
+      jsonData += "\"title\":\"" + titleEscaped + "\",";
+      jsonData += "\"content\":\"" + String(pushprotocol::escapeJson(pushprotocol::escapeHtml(text.c_str())).c_str()) + "\",";
       jsonData += "\"channel\":\"" + channelValue + "\"";
       jsonData += "}";
-      logCaptureLn(String("PushPlus: " + jsonData));
       httpCode = http.POST(jsonData);
       break;
     }
@@ -237,9 +265,8 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       String scUrl = channel.url.length() > 0 ? channel.url : ("https://sctapi.ftqq.com/" + channel.key1 + ".send");
       http.begin(scUrl);
       http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-      String postData = "title=" + urlEncode("短信来自: " + String(sender));
-      postData += "&desp=" + urlEncode("**发送者:** " + String(sender) + "\n\n**时间:** " + displayTimestamp + "\n\n**内容:**\n\n" + String(message));
-      logCaptureLn(String("Server酱: " + postData));
+      String postData = "title=" + urlEncode(title);
+      postData += "&desp=" + urlEncode(text);
       httpCode = http.POST(postData);
       break;
     }
@@ -248,15 +275,16 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       // 自定义模板
       if (channel.customBody.length() == 0) {
         logCaptureLn(String("自定义模板为空，跳过"));
-        return;
+        return false;
       }
       http.begin(channel.url);
       http.addHeader("Content-Type", "application/json");
-      String body = channel.customBody;
-      body.replace("{sender}", senderEscaped);
-      body.replace("{message}", messageEscaped);
-      body.replace("{timestamp}", timestampEscaped);
-      logCaptureLn(String("自定义: " + body));
+      String body = pushprotocol::renderJsonTemplate(channel.customBody.c_str(), sender,
+                                                    message, timestamp, context).c_str();
+      if (body.isEmpty()) {
+        logCaptureLn("自定义通知展开后超过 16 KB，已停止发送");
+        return false;
+      }
       httpCode = http.POST(body);
       break;
     }
@@ -289,12 +317,11 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       // 飞书消息体
       jsonData += "\"msg_type\":\"text\",";
       jsonData += "\"content\":{\"text\":\"";
-      jsonData += "📱短信通知\\n发送者: " + senderEscaped + "\\n内容: " + messageEscaped + "\\n时间: " + displayTimestampEscaped;
+      jsonData += textEscaped;
       jsonData += "\"}}";
 
       http.begin(webhookUrl);
       http.addHeader("Content-Type", "application/json");
-      logCaptureLn(String("飞书: " + jsonData));
       httpCode = http.POST(jsonData);
       break;
     }
@@ -302,12 +329,12 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
     case PUSH_TYPE_WECOM: {
       if (!pushprotocol::isWecomWebhook(channel.url.c_str())) {
         logCaptureLn("企业微信 Webhook 地址无效");
-        return;
+        return false;
       }
-      auto payloads = pushprotocol::wecomPayloads(sender, message, timestamp);
+      auto payloads = pushprotocol::wecomPayloads(sender, message, timestamp, context);
       if (payloads.empty()) {
         logCaptureLn("企业微信消息编码失败");
-        return;
+        return false;
       }
       for (size_t i = 0; i < payloads.size(); ++i) {
         HTTPClient wecom;
@@ -316,20 +343,20 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
         wecom.setReuse(false);
         if (!wecom.begin(channel.url)) {
           logCaptureLn("企业微信连接初始化失败");
-          return;
+          return false;
         }
         wecom.addHeader("Content-Type", "application/json; charset=utf-8");
         int code = wecom.POST(String(payloads[i].c_str()));
         String response;
-        if (code > 0 && wecom.getSize() <= 4096) response = wecom.getString();
+        if (code > 0) response = pushResponse(wecom);
         wecom.end();
         auto result = pushprotocol::evaluateResponse(code, response.c_str(), true);
         logCaptureF("[企业微信] 第 %u/%u 段 HTTP %d，%s：%s\n",
                     unsigned(i + 1), unsigned(payloads.size()), code,
                     result.ok ? "投递成功" : "投递失败", result.detail.c_str());
-        if (!result.ok) return;
+        if (!result.ok) return false;
       }
-      return;
+      return true;
     }
 
     case PUSH_TYPE_GOTIFY: {
@@ -342,11 +369,10 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       http.begin(gotifyUrl);
       http.addHeader("Content-Type", "application/json");
       String jsonData = "{";
-      jsonData += "\"title\":\"短信来自: " + senderEscaped + "\",";
-      jsonData += "\"message\":\"" + messageEscaped + "\\n\\n时间: " + displayTimestampEscaped + "\",";
+      jsonData += "\"title\":\"" + titleEscaped + "\",";
+      jsonData += "\"message\":\"" + textEscaped + "\",";
       jsonData += "\"priority\":5";
       jsonData += "}";
-      logCaptureLn(String("Gotify: " + jsonData));
       httpCode = http.POST(jsonData);
       break;
     }
@@ -362,35 +388,37 @@ void sendToChannel(const PushChannel& channel, const char* sender, const char* m
       http.addHeader("Content-Type", "application/json");
 
       String jsonData = "{";
-      jsonData += "\"chat_id\":\"" + channel.key1 + "\",";
-      String text = "📱短信通知\n发送者: " + senderEscaped + "\n内容: " + messageEscaped + "\n时间: " + displayTimestampEscaped;
-      jsonData += "\"text\":\"" + text + "\"";
+      jsonData += "\"chat_id\":\"" + jsonEscape(channel.key1) + "\",";
+      jsonData += "\"text\":\"" + textEscaped + "\"";
       jsonData += "}";
 
-      logCaptureLn(String("Telegram: " + jsonData));
       httpCode = http.POST(jsonData);
       break;
     }
 
     default:
       logCaptureLn(String("未知推送类型"));
-      return;
+      return false;
   }
 
   if (httpCode > 0) {
     logCaptureF("[%s] 响应码: %d\n", channelName.c_str(), httpCode);
     if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED) {
-      String response = http.getString();
-      logCaptureLn(String("响应: " + response));
+      logCaptureLn(String("通知平台已响应"));
     }
   } else {
     logCaptureF("[%s] HTTP请求失败: %s\n", channelName.c_str(), http.errorToString(httpCode).c_str());
   }
+  const String response = httpCode > 0 ? pushResponse(http) : String("");
+  const auto result = pushprotocol::evaluateResponse(httpCode, response.c_str(), false);
+  logCaptureF("[%s] %s\n", channelName.c_str(), result.detail.c_str());
   http.end();
+  return result.ok;
 }
 
 // 发送短信到所有启用的推送通道
-void sendSMSToServer(const char* sender, const char* message, const char* timestamp) {
+void sendSMSToServer(const char* sender, const char* message, const char* timestamp,
+                     const pushprotocol::NotificationContext& context) {
   if (WiFi.status() != WL_CONNECTED) {
     logCaptureLn(String("WiFi未连接，跳过推送"));
     return;
@@ -412,7 +440,7 @@ void sendSMSToServer(const char* sender, const char* message, const char* timest
   logCaptureLn(String("\n=== 开始多通道推送 ==="));
   for (int i = 0; i < MAX_PUSH_CHANNELS; i++) {
     if (isPushChannelValid(config.pushChannels[i])) {
-      sendToChannel(config.pushChannels[i], sender, message, timestamp);
+      sendToChannel(config.pushChannels[i], sender, message, timestamp, context);
       delay(100); // 短暂延迟避免请求过快
     }
   }
